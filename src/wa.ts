@@ -1,13 +1,17 @@
-import type { ConnectionState, proto, SocketConfig, WASocket } from '@adiwajshing/baileys';
+import type { Boom } from '@hapi/boom';
+import { initStore, Store } from '@kevineduardo/baileys-store';
 import makeWASocket, {
   Browsers,
+  ConnectionState,
   DisconnectReason,
   isJidBroadcast,
   makeCacheableSignalKeyStore,
-} from '@adiwajshing/baileys';
-import type { Boom } from '@hapi/boom';
-import { initStore, Store, useSession } from '@ookamiiixd/baileys-store';
+  proto,
+  SocketConfig,
+  WASocket,
+} from '@whiskeysockets/baileys';
 import type { Response } from 'express';
+import { useMySQLAuthState } from 'mysql-baileys';
 // import { writeFile } from 'fs/promises';
 // import { join } from 'path';
 import { toDataURL } from 'qrcode';
@@ -30,7 +34,7 @@ const SSE_MAX_QR_GENERATION = Number(process.env.SSE_MAX_QR_GENERATION || 5);
 const SESSION_CONFIG_ID = 'session-config';
 
 export async function init() {
-  initStore({ prisma, logger });
+  initStore({ prisma, logger: logger as any });
   const sessions = await prisma.session.findMany({
     select: { sessionId: true, data: true },
     where: { id: { startsWith: SESSION_CONFIG_ID } },
@@ -142,17 +146,25 @@ export async function createSession(options: createSessionOptions) {
   };
 
   const handleConnectionUpdate = SSE ? handleSSEConnectionUpdate : handleNormalConnectionUpdate;
-  const { state, saveCreds } = await useSession(sessionId);
+  // const { state, saveCreds } = await useMultiFileAuthState(`state-session/${sessionId}`);
+  const { state, saveCreds, removeCreds } = await useMySQLAuthState({
+    session: sessionId, // required
+    host: 'localhost', // optional
+    user: 'root', // optional
+    password: String(''), // required
+    database: 'baileys_api', // required
+  });
+
   const socket = makeWASocket({
     printQRInTerminal: true,
     browser: Browsers.ubuntu('Chrome'),
     generateHighQualityLinkPreview: true,
     ...socketConfig,
     auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger),
+      creds: (state as { creds: any }).creds as any,
+      keys: makeCacheableSignalKeyStore((state as { keys: any }).keys as any, logger as any),
     },
-    logger,
+    logger: logger as any,
     shouldIgnoreJid: (jid) => isJidBroadcast(jid),
     getMessage: async (key) => {
       const data = await prisma.message.findFirst({
@@ -166,6 +178,7 @@ export async function createSession(options: createSessionOptions) {
   sessions.set(sessionId, { ...socket, destroy, store });
 
   socket.ev.on('creds.update', saveCreds);
+
   socket.ev.on('connection.update', (update) => {
     connectionState = update;
     const { connection } = update;
@@ -192,7 +205,7 @@ export async function createSession(options: createSessionOptions) {
   // socket.ev.on('messaging-history.set', (data) => dump('messaging-history.set', data));
   // socket.ev.on('chats.upsert', (data) => dump('chats.upsert', data));
   // socket.ev.on('contacts.update', (data) => dump('contacts.update', data));
-  // socket.ev.on('groups.upsert', (data) => dump('groups.upsert', data));
+  //   socket.ev.on('contacts.upsert', (data) => console.log('contacts.upsert', data));
 
   await prisma.session.upsert({
     create: {

@@ -1,33 +1,35 @@
 {
+  "author": "nagi1",
   "name": "baileys-api",
   "description": "Simple RESTful WhatsApp API",
-  "version": "1.0.0-beta.0",
+  "version": "1.1.0",
   "private": true,
   "main": "dist/index.js",
-  "repository": "github:ookamiiixd/baileys-api",
-  "author": "Royhan (https://github.com/ookamiiixd)",
+  "repository": "github:nagi1/baileys-api",
   "bugs": {
-    "url": "https://github.com/ookamiiixd/baileys-api/issues"
+    "url": "https://github.com/nagi1/baileys-api/issues"
   },
-  "homepage": "https://github.com/ookamiiixd/baileys-api#readme",
+  "homepage": "https://github.com/nagi1/baileys-api#readme",
   "license": "MIT",
   "scripts": {
+    "start:dev": "tsc && node .",
     "start": "node .",
     "build": "tsc",
     "lint": "eslint .",
     "format": "prettier . --write"
   },
   "dependencies": {
-    "@adiwajshing/baileys": "^5.0.0",
     "@hapi/boom": "^10.0.0",
-    "@ookamiiixd/baileys-store": "^1.0.0-beta.0",
-    "@prisma/client": "^4.7.1",
+    "@kevineduardo/baileys-store": "^1.0.12",
+    "@prisma/client": "^4.16.2",
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-validator": "^6.14.2",
     "link-preview-js": "^3.0.0",
-    "pino": "^8.7.0",
+    "mysql-baileys": "github:bobslavtriev/mysql-baileys",
+    "pino": "^8.16.0",
     "qrcode": "^1.5.1",
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.30.5"

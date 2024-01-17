@@ -18,7 +18,7 @@ model Chat {
   conversationTimestamp     BigInt?
   createdAt                 BigInt?
   createdBy                 String?  @db.VarChar(128)
-  description               String?  @db.VarChar(255)
+  description               String?  @db.Text
   disappearingMode          Json?
   displayName               String?  @db.VarChar(128)
   endOfHistoryTransfer      Boolean?
@@ -96,6 +96,16 @@ model GroupMetadata {
 
   @@unique([sessionId, id], map: "unique_id_per_session_id")
   @@index([sessionId])
+}
+
+model Auth {
+    session String @db.VarChar(50)
+    id String @db.VarChar(100)
+    value Json?
+
+    @@unique([session, id], map: "idxunique")
+    @@index([session], map: "idxsession")
+    @@index([id], map: "idxid")
 }
 
 model Message {
