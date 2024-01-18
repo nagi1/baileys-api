@@ -99,13 +99,13 @@ model GroupMetadata {
 }
 
 model Auth {
-    session String @db.VarChar(50)
-    id String @db.VarChar(100)
-    value Json?
+  id      String   @id
+  session String   @unique
+  value   Json?
 
-    @@unique([session, id], map: "idxunique")
-    @@index([session], map: "idxsession")
-    @@index([id], map: "idxid")
+  @@index([session], name: "idxsession")
+  @@index([id], name: "idxid")
+  @@unique([session, id], name: "idxunique")
 }
 
 model Message {

@@ -11,7 +11,7 @@ import makeWASocket, {
   WASocket,
 } from '@whiskeysockets/baileys';
 import type { Response } from 'express';
-import { useMySQLAuthState } from 'mysql-baileys';
+import { AuthStateManagerConfig, createAuthStateManager } from './authStateManager';
 // import { writeFile } from 'fs/promises';
 // import { join } from 'path';
 import { toDataURL } from 'qrcode';
@@ -146,14 +146,12 @@ export async function createSession(options: createSessionOptions) {
   };
 
   const handleConnectionUpdate = SSE ? handleSSEConnectionUpdate : handleNormalConnectionUpdate;
-  // const { state, saveCreds } = await useMultiFileAuthState(`state-session/${sessionId}`);
-  const { state, saveCreds, removeCreds } = await useMySQLAuthState({
-    session: sessionId, // required
-    host: 'localhost', // optional
-    user: 'root', // optional
-    password: String(''), // required
-    database: 'baileys_api', // required
-  });
+
+  const config: AuthStateManagerConfig = {
+    sessionName: sessionId,
+  };
+
+  const { state, saveCreds, removeCreds } = await createAuthStateManager('database', config);
 
   const socket = makeWASocket({
     printQRInTerminal: true,
