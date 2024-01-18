@@ -5,4 +5,4 @@ prisma/migrations/
 .env
 *.tgz
 .vscode
-.DB_Store
+.DS_Store
