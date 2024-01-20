@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { logger, prisma } from '../shared';
+import { useLogger, usePrisma } from '../shared';
 import { getSession, jidExists } from '../wa';
 import { makePhotoURLHandler } from './misc';
 
@@ -7,7 +7,7 @@ export const list: RequestHandler = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { cursor = undefined, limit = 25 } = req.query;
-    const contacts = await prisma.contact.findMany({
+    const contacts = await usePrisma().contact.findMany({
       cursor: cursor ? { pkId: Number(cursor) } : undefined,
       take: Number(limit),
       skip: cursor ? 1 : 0,
@@ -23,7 +23,7 @@ export const list: RequestHandler = async (req, res) => {
     });
   } catch (e) {
     const message = 'An error occured during contact list';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };
@@ -35,7 +35,7 @@ export const listBlocked: RequestHandler = async (req, res) => {
     res.status(200).json(data);
   } catch (e) {
     const message = 'An error occured during blocklist fetch';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };
@@ -52,7 +52,7 @@ export const updateBlock: RequestHandler = async (req, res) => {
     res.status(200).json({ message: `Contact ${action}ed` });
   } catch (e) {
     const message = 'An error occured during blocklist update';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };
@@ -66,7 +66,7 @@ export const check: RequestHandler = async (req, res) => {
     res.status(200).json({ exists });
   } catch (e) {
     const message = 'An error occured during jid check';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };

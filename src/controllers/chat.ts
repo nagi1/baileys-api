@@ -1,13 +1,13 @@
-import { serializePrisma } from '@kevineduardo/baileys-store';
 import type { RequestHandler } from 'express';
-import { logger, prisma } from '../shared';
+import { useLogger, usePrisma } from '../shared';
+import { serializePrisma } from '../utils';
 
 export const list: RequestHandler = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { cursor = undefined, limit = 25 } = req.query;
     const chats = (
-      await prisma.chat.findMany({
+      await usePrisma().chat.findMany({
         cursor: cursor ? { pkId: Number(cursor) } : undefined,
         take: Number(limit),
         skip: cursor ? 1 : 0,
@@ -22,7 +22,7 @@ export const list: RequestHandler = async (req, res) => {
     });
   } catch (e) {
     const message = 'An error occured during chat list';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };
@@ -32,7 +32,7 @@ export const find: RequestHandler = async (req, res) => {
     const { sessionId, jid } = req.params;
     const { cursor = undefined, limit = 25 } = req.query;
     const messages = (
-      await prisma.message.findMany({
+      await usePrisma().message.findMany({
         cursor: cursor ? { pkId: Number(cursor) } : undefined,
         take: Number(limit),
         skip: cursor ? 1 : 0,
@@ -50,7 +50,7 @@ export const find: RequestHandler = async (req, res) => {
     });
   } catch (e) {
     const message = 'An error occured during chat find';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };

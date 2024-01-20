@@ -1,9 +1,8 @@
 import type { proto, WAGenericMediaMessage, WAMessage } from '@whiskeysockets/baileys';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { serializePrisma } from '@kevineduardo/baileys-store';
 import type { RequestHandler } from 'express';
-import { logger, prisma } from '../shared';
-import { delay as delayMs } from '../utils';
+import { useLogger, usePrisma } from '../shared';
+import { delay as delayMs, serializePrisma } from '../utils';
 import { getSession, jidExists } from '../wa';
 
 export const list: RequestHandler = async (req, res) => {
@@ -11,7 +10,7 @@ export const list: RequestHandler = async (req, res) => {
     const { sessionId } = req.params;
     const { cursor = undefined, limit = 25 } = req.query;
     const messages = (
-      await prisma.message.findMany({
+      await usePrisma().message.findMany({
         cursor: cursor ? { pkId: Number(cursor) } : undefined,
         take: Number(limit),
         skip: cursor ? 1 : 0,
@@ -28,7 +27,7 @@ export const list: RequestHandler = async (req, res) => {
     });
   } catch (e) {
     const message = 'An error occured during message list';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };
@@ -45,7 +44,7 @@ export const send: RequestHandler = async (req, res) => {
     res.status(200).json(result);
   } catch (e) {
     const message = 'An error occured during message send';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };
@@ -71,7 +70,7 @@ export const sendBulk: RequestHandler = async (req, res) => {
       results.push({ index, result });
     } catch (e) {
       const message = 'An error occured during message send';
-      logger.error(e, message);
+      useLogger().error(e, message);
       errors.push({ index, error: message });
     }
   }
@@ -91,7 +90,7 @@ export const download: RequestHandler = async (req, res) => {
       message,
       'buffer',
       {},
-      { logger: logger as any, reuploadRequest: session.updateMediaMessage }
+      { logger: useLogger as any, reuploadRequest: session.updateMediaMessage }
     );
 
     res.setHeader('Content-Type', content.mimetype!);
@@ -99,7 +98,7 @@ export const download: RequestHandler = async (req, res) => {
     res.end();
   } catch (e) {
     const message = 'An error occured during message media download';
-    logger.error(e, message);
+    useLogger().error(e, message);
     res.status(500).json({ error: message });
   }
 };

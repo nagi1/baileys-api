@@ -1,5 +1,25 @@
-import { PrismaClient } from '@prisma/client';
-import pino from 'pino';
+import type { PrismaClient } from '@prisma/client';
+import type { SocketConfig } from '@whiskeysockets/baileys';
+import { DEFAULT_CONNECTION_CONFIG } from '@whiskeysockets/baileys';
+import invariant from 'tiny-invariant';
 
-export const prisma = new PrismaClient();
-export const logger = pino({ level: process.env.LOG_LEVEL || 'debug' });
+let prisma: PrismaClient | null = null;
+let logger: SocketConfig['logger'] | null = null;
+
+export function setPrisma(prismaClient: PrismaClient) {
+  prisma = prismaClient;
+}
+
+export function setLogger(pinoLogger?: SocketConfig['logger']) {
+  logger = pinoLogger || DEFAULT_CONNECTION_CONFIG.logger;
+}
+
+export function usePrisma(): PrismaClient {
+  invariant(prisma, 'Prisma client cannot be used before initialization');
+  return prisma;
+}
+
+export function useLogger(): SocketConfig['logger'] {
+  invariant(logger, 'Pino logger cannot be used before initialization');
+  return logger;
+}

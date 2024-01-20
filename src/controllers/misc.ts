@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { logger } from '../shared';
+import { useLogger } from '../shared';
 import { getSession, jidExists } from '../wa';
 
 export const makePhotoURLHandler =
@@ -16,7 +16,7 @@ export const makePhotoURLHandler =
       res.status(200).json({ url });
     } catch (e) {
       const message = 'An error occured during photo fetch';
-      logger.error(e, message);
+      useLogger().error(e, message);
       res.status(500).json({ error: message });
     }
   };

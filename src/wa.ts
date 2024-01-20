@@ -1,5 +1,4 @@
 import type { Boom } from '@hapi/boom';
-import { initStore, Store } from '@kevineduardo/baileys-store';
 import makeWASocket, {
   Browsers,
   ConnectionState,
@@ -11,12 +10,16 @@ import makeWASocket, {
   WASocket,
 } from '@whiskeysockets/baileys';
 import type { Response } from 'express';
-import { AuthStateManagerConfig, createAuthStateManager } from './authStateManager';
+import { promises as fsPromises } from 'fs';
+import { useSession } from './session';
+import { initStore, Store } from './store';
 // import { writeFile } from 'fs/promises';
 // import { join } from 'path';
+import { PrismaClient } from '@prisma/client';
+import pino from 'pino';
 import { toDataURL } from 'qrcode';
 import type { WebSocket } from 'ws';
-import { logger, prisma } from './shared';
+import { useLogger, usePrisma } from './shared';
 import { delay } from './utils';
 
 type Session = WASocket & {
@@ -27,6 +30,32 @@ type Session = WASocket & {
 const sessions = new Map<string, Session>();
 const retries = new Map<string, number>();
 const SSEQRGenerations = new Map<string, number>();
+const prisma = new PrismaClient();
+
+// initialize logger
+// make sure logs/wa.log exists
+const logFilePath = `${__dirname}/logs/wa.log`;
+fsPromises.mkdir(`${__dirname}/logs`, { recursive: true });
+fsPromises.writeFile(logFilePath, '');
+
+const loggerTransport = pino.transport({
+  targets: [
+    {
+      target: 'pino/file',
+      options: { destination: logFilePath, target: 'pino-pretty' },
+    },
+    {
+      target: 'pino-pretty',
+    },
+  ],
+});
+
+const logger = pino(
+  {
+    level: process.env.LOG_LEVEL || 'debug',
+  },
+  loggerTransport
+);
 
 const RECONNECT_INTERVAL = Number(process.env.RECONNECT_INTERVAL || 0);
 const MAX_RECONNECT_RETRIES = Number(process.env.MAX_RECONNECT_RETRIES || 5);
@@ -34,8 +63,12 @@ const SSE_MAX_QR_GENERATION = Number(process.env.SSE_MAX_QR_GENERATION || 5);
 const SESSION_CONFIG_ID = 'session-config';
 
 export async function init() {
-  initStore({ prisma, logger: logger as any });
-  const sessions = await prisma.session.findMany({
+  initStore({
+    prisma, // Prisma client instance
+    logger: logger as any, // Pino logger (Optional)
+  });
+
+  const sessions = await usePrisma().session.findMany({
     select: { sessionId: true, data: true },
     where: { id: { startsWith: SESSION_CONFIG_ID } },
   });
@@ -74,14 +107,14 @@ export async function createSession(options: createSessionOptions) {
     try {
       await Promise.all([
         logout && socket.logout(),
-        prisma.chat.deleteMany({ where: { sessionId } }),
-        prisma.contact.deleteMany({ where: { sessionId } }),
-        prisma.message.deleteMany({ where: { sessionId } }),
-        prisma.groupMetadata.deleteMany({ where: { sessionId } }),
-        prisma.session.deleteMany({ where: { sessionId } }),
+        usePrisma().chat.deleteMany({ where: { sessionId } }),
+        usePrisma().contact.deleteMany({ where: { sessionId } }),
+        usePrisma().message.deleteMany({ where: { sessionId } }),
+        usePrisma().group.deleteMany({ where: { sessionId } }),
+        usePrisma().session.deleteMany({ where: { sessionId } }),
       ]);
     } catch (e) {
-      logger.error(e, 'An error occured during session destroy');
+      useLogger().error(e, 'An error occured during session destroy');
     } finally {
       sessions.delete(sessionId);
     }
@@ -102,7 +135,7 @@ export async function createSession(options: createSessionOptions) {
     }
 
     if (!restartRequired) {
-      logger.info({ attempts: retries.get(sessionId) ?? 1, sessionId }, 'Reconnecting...');
+      useLogger().info({ attempts: retries.get(sessionId) ?? 1, sessionId }, 'Reconnecting...');
     }
     setTimeout(() => createSession(options), restartRequired ? 0 : RECONNECT_INTERVAL);
   };
@@ -115,7 +148,7 @@ export async function createSession(options: createSessionOptions) {
           res.status(200).json({ qr });
           return;
         } catch (e) {
-          logger.error(e, 'An error occured during QR generation');
+          useLogger().error(e, 'An error occured during QR generation');
           res.status(500).json({ error: 'Unable to generate QR' });
         }
       }
@@ -129,7 +162,7 @@ export async function createSession(options: createSessionOptions) {
       try {
         qr = await toDataURL(connectionState.qr);
       } catch (e) {
-        logger.error(e, 'An error occured during QR generation');
+        useLogger().error(e, 'An error occured during QR generation');
       }
     }
 
@@ -147,25 +180,21 @@ export async function createSession(options: createSessionOptions) {
 
   const handleConnectionUpdate = SSE ? handleSSEConnectionUpdate : handleNormalConnectionUpdate;
 
-  const config: AuthStateManagerConfig = {
-    sessionName: sessionId,
-  };
-
-  const { state, saveCreds, removeCreds } = await createAuthStateManager('database', config);
+  const { state, saveCreds } = await useSession(sessionId);
 
   const socket = makeWASocket({
     printQRInTerminal: true,
-    browser: Browsers.ubuntu('Chrome'),
+    browser: Browsers.windows('Chrome'),
     generateHighQualityLinkPreview: true,
     ...socketConfig,
     auth: {
       creds: (state as { creds: any }).creds as any,
-      keys: makeCacheableSignalKeyStore((state as { keys: any }).keys as any, logger as any),
+      keys: makeCacheableSignalKeyStore((state as { keys: any }).keys as any, useLogger() as any),
     },
-    logger: logger as any,
+    logger: useLogger() as any,
     shouldIgnoreJid: (jid) => isJidBroadcast(jid),
     getMessage: async (key) => {
-      const data = await prisma.message.findFirst({
+      const data = await usePrisma().message.findFirst({
         where: { remoteJid: key.remoteJid!, id: key.id!, sessionId },
       });
       return (data?.message || undefined) as proto.IMessage | undefined;
@@ -205,7 +234,7 @@ export async function createSession(options: createSessionOptions) {
   // socket.ev.on('contacts.update', (data) => dump('contacts.update', data));
   //   socket.ev.on('contacts.upsert', (data) => console.log('contacts.upsert', data));
 
-  await prisma.session.upsert({
+  await usePrisma().session.upsert({
     create: {
       id: configID,
       sessionId,
