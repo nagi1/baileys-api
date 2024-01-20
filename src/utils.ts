@@ -1,5 +1,6 @@
 import { toNumber } from '@whiskeysockets/baileys';
 import { randomBytes } from 'crypto';
+import fs from 'fs';
 import { curve } from 'libsignal';
 import Long from 'long';
 import { v4 } from 'uuid';
@@ -121,3 +122,24 @@ export function serializePrisma<T extends Record<string, any>>(
 
   return obj;
 }
+
+export const debugEvents = (socket, events) => {
+  //   make sure that "debug" folder exists
+  const folderPath = `${__dirname}/debug`;
+  fs.mkdirSync(folderPath, { recursive: true });
+
+  // log every event in it's own file in append mode
+  events.forEach((event) => {
+    socket.on(event, (data) => {
+      let filePath = `${folderPath}/${event}.json`;
+      let i = 1;
+
+      while (fs.existsSync(filePath)) {
+        filePath = `${folderPath}/${event}-${i}.json`;
+        i++;
+      }
+
+      fs.appendFileSync(filePath, JSON.stringify(data, BufferJSON.replacer, 2));
+    });
+  });
+};

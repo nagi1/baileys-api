@@ -20,7 +20,7 @@ import pino from 'pino';
 import { toDataURL } from 'qrcode';
 import type { WebSocket } from 'ws';
 import { useLogger, usePrisma } from './shared';
-import { delay } from './utils';
+import { debugEvents, delay } from './utils';
 
 type Session = WASocket & {
   destroy: () => Promise<void>;
@@ -229,10 +229,12 @@ export async function createSession(options: createSessionOptions) {
   }
 
   // Debug events
-  // socket.ev.on('messaging-history.set', (data) => dump('messaging-history.set', data));
-  // socket.ev.on('chats.upsert', (data) => dump('chats.upsert', data));
-  // socket.ev.on('contacts.update', (data) => dump('contacts.update', data));
-  //   socket.ev.on('contacts.upsert', (data) => console.log('contacts.upsert', data));
+  debugEvents(socket.ev, [
+    'messaging-history.set',
+    'chats.upsert',
+    'contacts.update',
+    'contacts.upsert',
+  ]);
 
   await usePrisma().session.upsert({
     create: {
