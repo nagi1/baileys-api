@@ -29,6 +29,7 @@
     "link-preview-js": "^3.0.0",
     "mysql-baileys": "github:bobslavtriev/mysql-baileys",
     "pino": "^8.16.0",
+    "node-cache": "^5.1.2",
     "pino-tee": "^0.3.0",
     "proxy-agent": "^5.0.0",
     "qrcode": "^1.5.1",
