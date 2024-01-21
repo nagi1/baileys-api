@@ -19,19 +19,24 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 
   const set: BaileysEventHandler<'messaging-history.set'> = async ({ messages, isLatest }) => {
     try {
-      await prisma.$transaction(async (tx) => {
-        if (isLatest) await tx.message.deleteMany({ where: { sessionId } });
+      if (messages.length === 0) {
+        logger.info('No messages to sync');
 
-        await tx.message.createMany({
+        return;
+      }
+
+      for (const message of messages) {
+        const jid = jidNormalizedUser(message.key.remoteJid!);
+        const data = transformPrisma(message);
+        await prisma.message.upsert({
+          select: { pkId: true },
           // @ts-ignore
-          data: messages.map((message) => ({
-            ...transformPrisma(message),
-            remoteJid: message.key.remoteJid!,
-            id: message.key.id!,
-            sessionId,
-          })),
+          create: { ...data, remoteJid: jid, id: message.key.id!, sessionId },
+          update: { ...data },
+          where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id!, sessionId } },
         });
-      });
+      }
+
       logger.info({ messages: messages.length }, 'Synced messages');
     } catch (e) {
       logger.error(e, 'An error occured during messages set');

@@ -11,9 +11,13 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
 
   const set: BaileysEventHandler<'messaging-history.set'> = async ({ chats, isLatest }) => {
     try {
-      await prisma.$transaction(async (tx) => {
-        if (isLatest) await tx.chat.deleteMany({ where: { sessionId } });
+      if (chats.length === 0) {
+        logger.info('No chats to sync');
 
+        return;
+      }
+
+      await prisma.$transaction(async (tx) => {
         const existingIds = (
           await tx.chat.findMany({
             select: { id: true },
