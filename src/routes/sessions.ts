@@ -8,11 +8,12 @@ const sessionRules = [
   body('readIncomingMessages').isBoolean().optional(),
   body('proxy').isString().notEmpty().optional(),
   body('webhook').isObject().optional(),
+  body('webhook.enabled').isBoolean().optional().default(false),
   oneOf([
-    body('webhook.url').if(body('webhook').exists()).isString().notEmpty(),
+    body('webhook.url').if(body('webhook').exists()).isString().optional(),
     [
       body('webhook.url').if(body('webhook').exists()).isArray({ min: 1 }),
-      body('webhook.url.*').isString().notEmpty(),
+      body('webhook.url.*').isString(),
     ],
   ]),
   oneOf([

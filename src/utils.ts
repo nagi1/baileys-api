@@ -1,9 +1,11 @@
-import { toNumber } from '@whiskeysockets/baileys';
+import { downloadContentFromMessage, toNumber } from '@whiskeysockets/baileys';
+import axios, { AxiosRequestConfig } from 'axios';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import { curve } from 'libsignal';
 import Long from 'long';
 import { v4 } from 'uuid';
+import { useLogger } from './shared';
 import {
   KeyPair,
   MakeSerializedPrisma,
@@ -152,3 +154,53 @@ export function pick<T extends Record<string, any>>(obj: T, keys: (keyof T)[]): 
     return acc;
   }, {} as Partial<T>);
 }
+
+export async function downloadMessage(msg, msgType) {
+  let buffer = Buffer.from([]);
+  try {
+    const stream = await downloadContentFromMessage(msg, msgType);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+    }
+  } catch {
+    return console.log('error downloading file-message');
+  }
+  return buffer.toString('base64');
+}
+
+export const sendWebhook = (
+  url: string | null,
+  data: object,
+  axiosConfig: AxiosRequestConfig | null = {}
+) => {
+  if (!url) return;
+
+  const logger = useLogger();
+
+  let tries = 3;
+
+  axiosConfig.headers = {
+    ...axiosConfig.headers,
+
+    // Todo: add more headers (custom)
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  axiosConfig.timeout = axiosConfig.timeout || 10000;
+
+  return axios.post(url, data, axiosConfig).catch(async function (error) {
+    logger.error(
+      error,
+      `An error occured during webhook send to ${url}, tries left: ${tries}. Retrying...`
+    );
+
+    if (tries > 0) {
+      await delay(5000);
+      await sendWebhook(url, data, axiosConfig);
+      tries = tries - 1;
+
+      logger.info(`Retrying webhook send to ${url}, tries left: ${tries}`);
+    }
+  });
+};

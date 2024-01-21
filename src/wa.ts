@@ -10,7 +10,6 @@ import makeWASocket, {
   proto,
   SocketConfig,
 } from '@whiskeysockets/baileys';
-import axios from 'axios';
 import type { Response } from 'express';
 import { promises as fsPromises } from 'fs';
 import pino from 'pino';
@@ -20,7 +19,7 @@ import type { WebSocket } from 'ws';
 import { useSession } from './session';
 import { useLogger, usePrisma } from './shared';
 import { initStore, Store } from './store';
-import { delay, pick } from './utils';
+import { delay, downloadMessage, pick, sendWebhook } from './utils';
 
 const sessions = new Map<string, Session>();
 const retries = new Map<string, number>();
@@ -90,7 +89,8 @@ type SessionOptions = {
   readIncomingMessages?: boolean;
   proxy?: string;
   webhook?: {
-    url: string | string[];
+    enabled: boolean;
+    url: string | string[] | null;
     events: 'all' | (keyof BaileysEventMap)[];
   };
   socketConfig?: SocketConfig;
@@ -240,28 +240,82 @@ export class Session {
     });
 
     if (readIncomingMessages) {
-      this.socket.ev.on('messages.upsert', async (m) => {
-        const message = m.messages[0];
-        if (message.key.fromMe || m.type !== 'notify') return;
+      this.socket.ev.on('messages.upsert', async (messageEvent) => {
+        const message = messageEvent.messages[0];
+
+        if (message.key.fromMe || messageEvent.type !== 'notify') return;
 
         await delay(1000);
         await this.socket.readMessages([message.key]);
       });
     }
 
-    if (webhook) {
-      const { url, events } = webhook;
+    if (webhook.enabled) {
+      const { url: webhookUrls, events } = webhook;
+
+      const url = webhookUrls ?? process.env.WEBHOOK_URL ?? null;
+
+      if (!url?.length) {
+        useLogger().warn('No webhook url provided');
+        return;
+      }
+
       this.socket.ev.process(async (socketEvents) => {
-        const data = events === 'all' ? socketEvents : pick(socketEvents, events);
-        if (Object.keys(data).length <= 0) return;
+        let eventData = events === 'all' ? socketEvents : pick(socketEvents, events);
+
+        if (Object.keys(eventData).length <= 0) return;
+
+        const data = {
+          ...eventData,
+          session: sessionId,
+        };
+
+        const messageEvent = data['messages.upsert'];
+
+        // check if the data is a message upsert event
+        messageEvent?.messages?.map(async (messageObj: proto.IWebMessageInfo, index) => {
+          if (!messageObj.message) return;
+
+          const messageType = Object.keys(messageObj.message)[0] ?? null;
+
+          if (
+            typeof messageType === null ||
+            ['protocolMessage', 'senderKeyDistributionMessage'].includes(messageType)
+          )
+            return;
+
+          if (messageType === 'conversation') {
+            data['messages.upsert'][index]['text'] = messageEvent;
+          }
+
+          switch (messageType) {
+            case 'imageMessage':
+              data['messages.upsert'][index]['messageContents'] = await downloadMessage(
+                messageObj.message.imageMessage,
+                'image'
+              );
+              break;
+            case 'videoMessage':
+              data['messages.upsert'][index]['messageContents'] = await downloadMessage(
+                messageObj.message.videoMessage,
+                'video'
+              );
+              break;
+            case 'audioMessage':
+              data['messages.upsert'][index]['messageContents'] = await downloadMessage(
+                messageObj.message.audioMessage,
+                'audio'
+              );
+              break;
+            default:
+              data['messages.upsert'][index]['messageContents'] = messageEvent;
+              break;
+          }
+        });
 
         try {
           await Promise.any(
-            (typeof url === 'string' ? [url] : url).map((url) =>
-              axios.post(url, data, {
-                timeout: 5000,
-              })
-            )
+            (typeof url === 'string' ? [url] : url).map((url) => sendWebhook(url, data))
           );
         } catch (e) {
           useLogger().error(e, 'An error occured during webhook request');
