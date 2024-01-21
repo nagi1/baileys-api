@@ -59,7 +59,7 @@ const logger = pino(
 
 const RECONNECT_INTERVAL = Number(process.env.RECONNECT_INTERVAL || 0);
 const MAX_RECONNECT_RETRIES = Number(process.env.MAX_RECONNECT_RETRIES || 5);
-const SSE_MAX_QR_GENERATION = Number(process.env.SSE_MAX_QR_GENERATION || 5);
+const MAX_QR_GENERATION = Number(process.env.MAX_QR_GENERATION || 5);
 const SESSION_CONFIG_ID = 'session-config';
 
 export async function init() {
@@ -167,7 +167,7 @@ export async function createSession(options: createSessionOptions) {
     }
 
     const currentGenerations = SSEQRGenerations.get(sessionId) ?? 0;
-    if (!res || res.writableEnded || (qr && currentGenerations >= SSE_MAX_QR_GENERATION)) {
+    if (!res || res.writableEnded || (qr && currentGenerations >= MAX_QR_GENERATION)) {
       res && !res.writableEnded && res.end();
       destroy();
       return;
