@@ -42,7 +42,7 @@ const loggerTransport = pino.transport({
   targets: [
     {
       target: 'pino/file',
-      options: { destination: logFilePath, target: 'pino-pretty' },
+      options: { destination: logFilePath },
     },
     {
       target: 'pino-pretty',
