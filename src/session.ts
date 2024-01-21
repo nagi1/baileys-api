@@ -16,7 +16,7 @@ export async function useSession(sessionId: string) {
 
       // Todo convert this to upsert
       await usePrisma()
-        .$executeRaw`INSERT INTO session (data, id, sessionId) VALUES (${data}, ${id}, ${sessionId}) ON DUPLICATE KEY UPDATE data = ${data}`;
+        .$executeRaw`INSERT INTO session (data, id, session_id) VALUES (${data}, ${id}, ${sessionId}) ON DUPLICATE KEY UPDATE data = ${data}`;
     } catch (e) {
       logger.error(e, 'An error occured during session write');
     }
