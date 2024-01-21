@@ -15,6 +15,6 @@ const port = Number(process.env.PORT || 3000);
 const listener = () => console.log(`Server is listening on http://${host}:${port}`);
 
 (async () => {
-  await init();
-  app.listen(port, host, listener);
+    await init();
+    app.listen(port, host, listener);
 })();

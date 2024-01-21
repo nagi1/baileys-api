@@ -4,8 +4,8 @@ An implementation of [@whiskeysockets/baileys](https://github.com/adiwajshing/Ba
 
 ## Requirements
 
-- **NodeJS** version **14.5.0** or higher
-- **Prisma** [supported databases](https://www.prisma.io/docs/reference/database-reference/supported-databases). Tested on MySQL and PostgreSQL
+-   **NodeJS** version **14.5.0** or higher
+-   **Prisma** [supported databases](https://www.prisma.io/docs/reference/database-reference/supported-databases). Tested on MySQL and PostgreSQL
 
 ## Installation
 
@@ -85,7 +85,7 @@ The API documentation is available online [here](https://documenter.getpostman.c
 
 ## Notes
 
-- There's no authentication, you may want to implement your own. I don't want to force anyone into using a specific authentication method, choose whatever you love
+-   There's no authentication, you may want to implement your own. I don't want to force anyone into using a specific authentication method, choose whatever you love
 
 ## Notice
 

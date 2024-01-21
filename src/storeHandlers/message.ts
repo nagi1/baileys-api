@@ -1,232 +1,227 @@
-import type {
-  BaileysEventEmitter,
-  MessageUserReceipt,
-  proto,
-  WAMessageKey,
-} from '@whiskeysockets/baileys';
+import type { BaileysEventEmitter, MessageUserReceipt, proto, WAMessageKey } from '@whiskeysockets/baileys';
 import { jidNormalizedUser, toNumber } from '@whiskeysockets/baileys';
 import { useLogger, usePrisma } from '../shared';
 import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
 const getKeyAuthor = (key: WAMessageKey | undefined | null) =>
-  (key?.fromMe ? 'me' : key?.participant || key?.remoteJid) || '';
+    (key?.fromMe ? 'me' : key?.participant || key?.remoteJid) || '';
 
 export default function messageHandler(sessionId: string, event: BaileysEventEmitter) {
-  let listening = false;
+    let listening = false;
 
-  const set: BaileysEventHandler<'messaging-history.set'> = async ({ messages, isLatest }) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    try {
-      if (messages.length === 0) {
-        logger.info('No messages to sync');
+    const set: BaileysEventHandler<'messaging-history.set'> = async ({ messages, isLatest }) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        try {
+            if (messages.length === 0) {
+                logger.info('No messages to sync');
 
-        return;
-      }
-
-      for (const message of messages) {
-        const jid = jidNormalizedUser(message.key.remoteJid!);
-        const data = transformPrisma(message);
-        await prisma.message.upsert({
-          select: { pkId: true },
-          // @ts-ignore
-          create: { ...data, remoteJid: jid, id: message.key.id!, sessionId },
-          update: { ...data },
-          where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id!, sessionId } },
-        });
-      }
-
-      logger.info({ messages: messages.length }, 'Synced messages');
-    } catch (e) {
-      logger.error(e, 'An error occured during messages set');
-    }
-  };
-
-  const upsert: BaileysEventHandler<'messages.upsert'> = async ({ messages, type }) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    switch (type) {
-      case 'append':
-      case 'notify':
-        for (const message of messages) {
-          try {
-            const jid = jidNormalizedUser(message.key.remoteJid!);
-            const data = transformPrisma(message);
-            await prisma.message.upsert({
-              select: { pkId: true },
-              // @ts-ignore
-              create: { ...data, remoteJid: jid, id: message.key.id!, sessionId },
-              update: { ...data },
-              where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id!, sessionId } },
-            });
-
-            const chatExists = (await prisma.chat.count({ where: { id: jid, sessionId } })) > 0;
-            if (type === 'notify' && !chatExists) {
-              event.emit('chats.upsert', [
-                {
-                  id: jid,
-                  conversationTimestamp: toNumber(message.messageTimestamp),
-                  unreadCount: 1,
-                },
-              ]);
+                return;
             }
-          } catch (e) {
-            logger.error(e, 'An error occured during message upsert');
-          }
+
+            for (const message of messages) {
+                const jid = jidNormalizedUser(message.key.remoteJid!);
+                const data = transformPrisma(message);
+                await prisma.message.upsert({
+                    select: { pkId: true },
+                    // @ts-ignore
+                    create: { ...data, remoteJid: jid, id: message.key.id!, sessionId },
+                    update: { ...data },
+                    where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id!, sessionId } },
+                });
+            }
+
+            logger.info({ messages: messages.length }, 'Synced messages');
+        } catch (e) {
+            logger.error(e, 'An error occured during messages set');
         }
-        break;
-    }
-  };
+    };
 
-  const update: BaileysEventHandler<'messages.update'> = async (updates) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    for (const { update, key } of updates) {
-      try {
-        await prisma.$transaction(async (tx) => {
-          const prevData = await tx.message.findFirst({
-            where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
-          });
-          if (!prevData) {
-            return logger.info({ update }, 'Got update for non existent message');
-          }
+    const upsert: BaileysEventHandler<'messages.upsert'> = async ({ messages, type }) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        switch (type) {
+            case 'append':
+            case 'notify':
+                for (const message of messages) {
+                    try {
+                        const jid = jidNormalizedUser(message.key.remoteJid!);
+                        const data = transformPrisma(message);
+                        await prisma.message.upsert({
+                            select: { pkId: true },
+                            // @ts-ignore
+                            create: { ...data, remoteJid: jid, id: message.key.id!, sessionId },
+                            update: { ...data },
+                            where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id!, sessionId } },
+                        });
 
-          const data = { ...prevData, ...update } as proto.IWebMessageInfo;
-          await tx.message.update({
-            where: {
-              sessionId_remoteJid_id: {
-                id: key.id!,
-                remoteJid: key.remoteJid!,
-                sessionId,
-              },
-            },
-            data: {
-              ...transformPrisma(data),
-              id: data.key.id!,
-              remoteJid: data.key.remoteJid!,
-              sessionId,
-            },
-          });
-        });
-      } catch (e) {
-        logger.error(e, 'An error occured during message update');
-      }
-    }
-  };
+                        const chatExists = (await prisma.chat.count({ where: { id: jid, sessionId } })) > 0;
+                        if (type === 'notify' && !chatExists) {
+                            event.emit('chats.upsert', [
+                                {
+                                    id: jid,
+                                    conversationTimestamp: toNumber(message.messageTimestamp),
+                                    unreadCount: 1,
+                                },
+                            ]);
+                        }
+                    } catch (e) {
+                        logger.error(e, 'An error occured during message upsert');
+                    }
+                }
+                break;
+        }
+    };
 
-  const del: BaileysEventHandler<'messages.delete'> = async (item) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    try {
-      if ('all' in item) {
-        await prisma.message.deleteMany({ where: { remoteJid: item.jid, sessionId } });
-        return;
-      }
+    const update: BaileysEventHandler<'messages.update'> = async (updates) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        for (const { update, key } of updates) {
+            try {
+                await prisma.$transaction(async (tx) => {
+                    const prevData = await tx.message.findFirst({
+                        where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+                    });
+                    if (!prevData) {
+                        return logger.info({ update }, 'Got update for non existent message');
+                    }
 
-      const jid = item.keys[0].remoteJid!;
-      await prisma.message.deleteMany({
-        where: { id: { in: item.keys.map((k) => k.id!) }, remoteJid: jid, sessionId },
-      });
-    } catch (e) {
-      logger.error(e, 'An error occured during message delete');
-    }
-  };
+                    const data = { ...prevData, ...update } as proto.IWebMessageInfo;
+                    await tx.message.update({
+                        where: {
+                            sessionId_remoteJid_id: {
+                                id: key.id!,
+                                remoteJid: key.remoteJid!,
+                                sessionId,
+                            },
+                        },
+                        data: {
+                            ...transformPrisma(data),
+                            id: data.key.id!,
+                            remoteJid: data.key.remoteJid!,
+                            sessionId,
+                        },
+                    });
+                });
+            } catch (e) {
+                logger.error(e, 'An error occured during message update');
+            }
+        }
+    };
 
-  const updateReceipt: BaileysEventHandler<'message-receipt.update'> = async (updates) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    for (const { key, receipt } of updates) {
-      try {
-        await prisma.$transaction(async (tx) => {
-          const message = await tx.message.findFirst({
-            select: { userReceipt: true },
-            where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
-          });
-          if (!message) {
-            return logger.debug({ update }, 'Got receipt update for non existent message');
-          }
+    const del: BaileysEventHandler<'messages.delete'> = async (item) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        try {
+            if ('all' in item) {
+                await prisma.message.deleteMany({ where: { remoteJid: item.jid, sessionId } });
+                return;
+            }
 
-          let userReceipt = (message.userReceipt || []) as unknown as MessageUserReceipt[];
-          const recepient = userReceipt.find((m) => m.userJid === receipt.userJid);
+            const jid = item.keys[0].remoteJid!;
+            await prisma.message.deleteMany({
+                where: { id: { in: item.keys.map((k) => k.id!) }, remoteJid: jid, sessionId },
+            });
+        } catch (e) {
+            logger.error(e, 'An error occured during message delete');
+        }
+    };
 
-          if (recepient) {
-            userReceipt = [...userReceipt.filter((m) => m.userJid !== receipt.userJid), receipt];
-          } else {
-            userReceipt.push(receipt);
-          }
+    const updateReceipt: BaileysEventHandler<'message-receipt.update'> = async (updates) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        for (const { key, receipt } of updates) {
+            try {
+                await prisma.$transaction(async (tx) => {
+                    const message = await tx.message.findFirst({
+                        select: { userReceipt: true },
+                        where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+                    });
+                    if (!message) {
+                        return logger.debug({ update }, 'Got receipt update for non existent message');
+                    }
 
-          await tx.message.update({
-            select: { pkId: true },
-            data: transformPrisma({ userReceipt: userReceipt }),
-            where: {
-              sessionId_remoteJid_id: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
-            },
-          });
-        });
-      } catch (e) {
-        logger.error(e, 'An error occured during message receipt update');
-      }
-    }
-  };
+                    let userReceipt = (message.userReceipt || []) as unknown as MessageUserReceipt[];
+                    const recepient = userReceipt.find((m) => m.userJid === receipt.userJid);
 
-  const updateReaction: BaileysEventHandler<'messages.reaction'> = async (reactions) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    for (const { key, reaction } of reactions) {
-      try {
-        await prisma.$transaction(async (tx) => {
-          const message = await tx.message.findFirst({
-            select: { reactions: true },
-            where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
-          });
-          if (!message) {
-            return logger.debug({ update }, 'Got reaction update for non existent message');
-          }
+                    if (recepient) {
+                        userReceipt = [...userReceipt.filter((m) => m.userJid !== receipt.userJid), receipt];
+                    } else {
+                        userReceipt.push(receipt);
+                    }
 
-          const authorID = getKeyAuthor(reaction.key);
-          const reactions = ((message.reactions || []) as proto.IReaction[]).filter(
-            (r) => getKeyAuthor(r.key) !== authorID
-          );
+                    await tx.message.update({
+                        select: { pkId: true },
+                        data: transformPrisma({ userReceipt: userReceipt }),
+                        where: {
+                            sessionId_remoteJid_id: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+                        },
+                    });
+                });
+            } catch (e) {
+                logger.error(e, 'An error occured during message receipt update');
+            }
+        }
+    };
 
-          if (reaction.text) reactions.push(reaction);
-          await tx.message.update({
-            select: { pkId: true },
-            data: transformPrisma({ reactions: reactions }),
-            where: {
-              sessionId_remoteJid_id: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
-            },
-          });
-        });
-      } catch (e) {
-        logger.error(e, 'An error occured during message reaction update');
-      }
-    }
-  };
+    const updateReaction: BaileysEventHandler<'messages.reaction'> = async (reactions) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        for (const { key, reaction } of reactions) {
+            try {
+                await prisma.$transaction(async (tx) => {
+                    const message = await tx.message.findFirst({
+                        select: { reactions: true },
+                        where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+                    });
+                    if (!message) {
+                        return logger.debug({ update }, 'Got reaction update for non existent message');
+                    }
 
-  const listen = () => {
-    if (listening) return;
+                    const authorID = getKeyAuthor(reaction.key);
+                    const reactions = ((message.reactions || []) as proto.IReaction[]).filter(
+                        (r) => getKeyAuthor(r.key) !== authorID
+                    );
 
-    event.on('messaging-history.set', set);
-    event.on('messages.upsert', upsert);
-    event.on('messages.update', update);
-    event.on('messages.delete', del);
-    event.on('message-receipt.update', updateReceipt);
-    event.on('messages.reaction', updateReaction);
-    listening = true;
-  };
+                    if (reaction.text) reactions.push(reaction);
+                    await tx.message.update({
+                        select: { pkId: true },
+                        data: transformPrisma({ reactions: reactions }),
+                        where: {
+                            sessionId_remoteJid_id: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+                        },
+                    });
+                });
+            } catch (e) {
+                logger.error(e, 'An error occured during message reaction update');
+            }
+        }
+    };
 
-  const unlisten = () => {
-    if (!listening) return;
+    const listen = () => {
+        if (listening) return;
 
-    event.off('messaging-history.set', set);
-    event.off('messages.upsert', upsert);
-    event.off('messages.update', update);
-    event.off('messages.delete', del);
-    event.off('message-receipt.update', updateReceipt);
-    event.off('messages.reaction', updateReaction);
-    listening = false;
-  };
+        event.on('messaging-history.set', set);
+        event.on('messages.upsert', upsert);
+        event.on('messages.update', update);
+        event.on('messages.delete', del);
+        event.on('message-receipt.update', updateReceipt);
+        event.on('messages.reaction', updateReaction);
+        listening = true;
+    };
 
-  return { listen, unlisten };
+    const unlisten = () => {
+        if (!listening) return;
+
+        event.off('messaging-history.set', set);
+        event.off('messages.upsert', upsert);
+        event.off('messages.update', update);
+        event.off('messages.delete', del);
+        event.off('message-receipt.update', updateReceipt);
+        event.off('messages.reaction', updateReaction);
+        listening = false;
+    };
+
+    return { listen, unlisten };
 }

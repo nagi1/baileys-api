@@ -5,129 +5,129 @@ import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
 export default function chatHandler(sessionId: string, event: BaileysEventEmitter) {
-  let listening = false;
+    let listening = false;
 
-  const set: BaileysEventHandler<'messaging-history.set'> = async ({ chats, isLatest }) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    try {
-      if (chats.length === 0) {
-        logger.info('No chats to sync');
+    const set: BaileysEventHandler<'messaging-history.set'> = async ({ chats, isLatest }) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        try {
+            if (chats.length === 0) {
+                logger.info('No chats to sync');
 
-        return;
-      }
+                return;
+            }
 
-      await prisma.$transaction(async (tx) => {
-        const existingIds = (
-          await tx.chat.findMany({
-            select: { id: true },
-            where: { id: { in: chats.map((c) => c.id) }, sessionId },
-          })
-        ).map((i) => i.id);
+            await prisma.$transaction(async (tx) => {
+                const existingIds = (
+                    await tx.chat.findMany({
+                        select: { id: true },
+                        where: { id: { in: chats.map((c) => c.id) }, sessionId },
+                    })
+                ).map((i) => i.id);
 
-        const chatsAdded = (
-          await tx.chat.createMany({
-            // @ts-ignore
-            data: chats
-              .filter((c) => !existingIds.includes(c.id))
-              .map((c) => ({ ...transformPrisma(c), sessionId })),
-          })
-        ).count;
+                const chatsAdded = (
+                    await tx.chat.createMany({
+                        // @ts-ignore
+                        data: chats
+                            .filter((c) => !existingIds.includes(c.id))
+                            .map((c) => ({ ...transformPrisma(c), sessionId })),
+                    })
+                ).count;
 
-        logger.info({ chatsAdded }, 'Synced chats');
-      });
-    } catch (e) {
-      logger.error(e, 'An error occured during chats set');
-    }
-  };
-
-  const upsert: BaileysEventHandler<'chats.upsert'> = async (chats) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    try {
-      await Promise.any(
-        chats
-          .map((c) => transformPrisma(c))
-          .map((data) =>
-            prisma.chat.upsert({
-              select: { pkId: true },
-              // @ts-ignore
-              create: { ...data, sessionId },
-              update: data,
-              where: { sessionId_id: { id: data.id, sessionId } },
-            })
-          )
-      );
-    } catch (e) {
-      logger.error(e, 'An error occured during chats upsert');
-    }
-  };
-
-  const update: BaileysEventHandler<'chats.update'> = async (updates) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    for (const updateData of updates) {
-      try {
-        const data = transformPrisma(updateData);
-        const chatExists = await prisma.chat.findUnique({
-          where: { sessionId_id: { id: data.id!, sessionId } },
-        });
-
-        if (chatExists) {
-          await prisma.chat.update({
-            select: { pkId: true },
-            data: {
-              ...data,
-              unreadCount:
-                typeof data.unreadCount === 'number'
-                  ? data.unreadCount > 0
-                    ? { increment: data.unreadCount }
-                    : { set: data.unreadCount }
-                  : undefined,
-            },
-            where: { sessionId_id: { id: data.id!, sessionId } },
-          });
+                logger.info({ chatsAdded }, 'Synced chats');
+            });
+        } catch (e) {
+            logger.error(e, 'An error occured during chats set');
         }
-      } catch (e) {
-        if (e instanceof PrismaClientKnownRequestError && e.code === 'P2025') {
-          return logger.info({ updateData }, 'Got update for non-existent chat');
+    };
+
+    const upsert: BaileysEventHandler<'chats.upsert'> = async (chats) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        try {
+            await Promise.any(
+                chats
+                    .map((c) => transformPrisma(c))
+                    .map((data) =>
+                        prisma.chat.upsert({
+                            select: { pkId: true },
+                            // @ts-ignore
+                            create: { ...data, sessionId },
+                            update: data,
+                            where: { sessionId_id: { id: data.id, sessionId } },
+                        })
+                    )
+            );
+        } catch (e) {
+            logger.error(e, 'An error occured during chats upsert');
         }
-        logger.error(e, 'An error occurred during chat update');
-      }
-    }
-  };
+    };
 
-  const del: BaileysEventHandler<'chats.delete'> = async (ids) => {
-    const prisma = usePrisma();
-    const logger = useLogger();
-    try {
-      await prisma.chat.deleteMany({
-        where: { id: { in: ids } },
-      });
-    } catch (e) {
-      logger.error(e, 'An error occured during chats delete');
-    }
-  };
+    const update: BaileysEventHandler<'chats.update'> = async (updates) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        for (const updateData of updates) {
+            try {
+                const data = transformPrisma(updateData);
+                const chatExists = await prisma.chat.findUnique({
+                    where: { sessionId_id: { id: data.id!, sessionId } },
+                });
 
-  const listen = () => {
-    if (listening) return;
+                if (chatExists) {
+                    await prisma.chat.update({
+                        select: { pkId: true },
+                        data: {
+                            ...data,
+                            unreadCount:
+                                typeof data.unreadCount === 'number'
+                                    ? data.unreadCount > 0
+                                        ? { increment: data.unreadCount }
+                                        : { set: data.unreadCount }
+                                    : undefined,
+                        },
+                        where: { sessionId_id: { id: data.id!, sessionId } },
+                    });
+                }
+            } catch (e) {
+                if (e instanceof PrismaClientKnownRequestError && e.code === 'P2025') {
+                    return logger.info({ updateData }, 'Got update for non-existent chat');
+                }
+                logger.error(e, 'An error occurred during chat update');
+            }
+        }
+    };
 
-    event.on('messaging-history.set', set);
-    event.on('chats.upsert', upsert);
-    event.on('chats.update', update);
-    event.on('chats.delete', del);
-    listening = true;
-  };
+    const del: BaileysEventHandler<'chats.delete'> = async (ids) => {
+        const prisma = usePrisma();
+        const logger = useLogger();
+        try {
+            await prisma.chat.deleteMany({
+                where: { id: { in: ids } },
+            });
+        } catch (e) {
+            logger.error(e, 'An error occured during chats delete');
+        }
+    };
 
-  const unlisten = () => {
-    if (!listening) return;
+    const listen = () => {
+        if (listening) return;
 
-    event.off('messaging-history.set', set);
-    event.off('chats.upsert', upsert);
-    event.off('chats.update', update);
-    event.off('chats.delete', del);
-    listening = false;
-  };
+        event.on('messaging-history.set', set);
+        event.on('chats.upsert', upsert);
+        event.on('chats.update', update);
+        event.on('chats.delete', del);
+        listening = true;
+    };
 
-  return { listen, unlisten };
+    const unlisten = () => {
+        if (!listening) return;
+
+        event.off('messaging-history.set', set);
+        event.off('chats.upsert', upsert);
+        event.off('chats.update', update);
+        event.off('chats.delete', del);
+        listening = false;
+    };
+
+    return { listen, unlisten };
 }
