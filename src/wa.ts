@@ -270,9 +270,10 @@ export class Session {
           session: sessionId,
         };
 
-        const messageEvent = data['messages.upsert'];
+        const messageEvent = data['messages.upsert'] || { messages: [] };
 
         // check if the data is a message upsert event
+        // Todo check this
         messageEvent?.messages?.map(async (messageObj: proto.IWebMessageInfo, index) => {
           if (!messageObj.message) return;
 
