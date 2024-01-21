@@ -12,6 +12,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import type { Response } from 'express';
 import { promises as fsPromises } from 'fs';
+import NodeCache from 'node-cache';
 import pino from 'pino';
 import ProxyAgent from 'proxy-agent';
 import { toDataURL } from 'qrcode';
@@ -72,13 +73,18 @@ export async function init() {
 }
 
 function shouldReconnect(sessionId: string) {
+  const maxRetries = parseInt(process.env.MAX_RECONNECT_RETRIES) || 5;
   let attempts = retries.get(sessionId) ?? 0;
 
-  if (attempts < MAX_RECONNECT_RETRIES) {
+  if (attempts < MAX_RECONNECT_RETRIES || maxRetries === -1) {
     attempts += 1;
+
+    console.log('Reconnecting...', { attempts, sessionId });
     retries.set(sessionId, attempts);
+
     return true;
   }
+
   return false;
 }
 
@@ -114,6 +120,7 @@ export class Session {
       ...socketConfig,
       logger: useLogger(),
       agent: proxy ? new ProxyAgent() : undefined,
+      msgRetryCounterCache: new NodeCache({ stdTTL: 60, checkperiod: 120 }),
       auth: {
         creds: sessionState.state.creds,
         keys: makeCacheableSignalKeyStore(sessionState.state.keys, useLogger()),
