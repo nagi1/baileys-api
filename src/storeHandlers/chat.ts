@@ -5,11 +5,11 @@ import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
 export default function chatHandler(sessionId: string, event: BaileysEventEmitter) {
-  const prisma = usePrisma();
-  const logger = useLogger();
   let listening = false;
 
   const set: BaileysEventHandler<'messaging-history.set'> = async ({ chats, isLatest }) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       if (chats.length === 0) {
         logger.info('No chats to sync');
@@ -42,6 +42,8 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
   };
 
   const upsert: BaileysEventHandler<'chats.upsert'> = async (chats) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       await Promise.any(
         chats
@@ -62,6 +64,8 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
   };
 
   const update: BaileysEventHandler<'chats.update'> = async (updates) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     for (const updateData of updates) {
       try {
         const data = transformPrisma(updateData);
@@ -94,6 +98,8 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
   };
 
   const del: BaileysEventHandler<'chats.delete'> = async (ids) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       await prisma.chat.deleteMany({
         where: { id: { in: ids } },

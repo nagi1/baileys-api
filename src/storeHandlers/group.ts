@@ -5,11 +5,11 @@ import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
 export default function groupHandler(sessionId: string, event: BaileysEventEmitter) {
-  const prisma = usePrisma();
-  const logger = useLogger();
   let listening = false;
 
   const upsert: BaileysEventHandler<'groups.upsert'> = async (groups) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       if (groups.length === 0) {
         logger.info('No groups to sync');
@@ -37,6 +37,8 @@ export default function groupHandler(sessionId: string, event: BaileysEventEmitt
   };
 
   const update: BaileysEventHandler<'groups.update'> = async (updates) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     for (const update of updates) {
       try {
         await prisma.group.update({

@@ -13,11 +13,11 @@ const getKeyAuthor = (key: WAMessageKey | undefined | null) =>
   (key?.fromMe ? 'me' : key?.participant || key?.remoteJid) || '';
 
 export default function messageHandler(sessionId: string, event: BaileysEventEmitter) {
-  const prisma = usePrisma();
-  const logger = useLogger();
   let listening = false;
 
   const set: BaileysEventHandler<'messaging-history.set'> = async ({ messages, isLatest }) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       if (messages.length === 0) {
         logger.info('No messages to sync');
@@ -44,6 +44,8 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const upsert: BaileysEventHandler<'messages.upsert'> = async ({ messages, type }) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     switch (type) {
       case 'append':
       case 'notify':
@@ -78,6 +80,8 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const update: BaileysEventHandler<'messages.update'> = async (updates) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     for (const { update, key } of updates) {
       try {
         await prisma.$transaction(async (tx) => {
@@ -112,6 +116,8 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const del: BaileysEventHandler<'messages.delete'> = async (item) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       if ('all' in item) {
         await prisma.message.deleteMany({ where: { remoteJid: item.jid, sessionId } });
@@ -128,6 +134,8 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const updateReceipt: BaileysEventHandler<'message-receipt.update'> = async (updates) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     for (const { key, receipt } of updates) {
       try {
         await prisma.$transaction(async (tx) => {
@@ -163,6 +171,8 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const updateReaction: BaileysEventHandler<'messages.reaction'> = async (reactions) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     for (const { key, reaction } of reactions) {
       try {
         await prisma.$transaction(async (tx) => {

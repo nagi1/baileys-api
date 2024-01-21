@@ -1,5 +1,7 @@
 import type { Boom } from '@hapi/boom';
+import { PrismaClient } from '@prisma/client';
 import makeWASocket, {
+  BaileysEventMap,
   Browsers,
   ConnectionState,
   DisconnectReason,
@@ -7,65 +9,55 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   proto,
   SocketConfig,
-  WASocket,
 } from '@whiskeysockets/baileys';
+import axios from 'axios';
 import type { Response } from 'express';
 import { promises as fsPromises } from 'fs';
-import { useSession } from './session';
-import { initStore, Store } from './store';
-// import { writeFile } from 'fs/promises';
-// import { join } from 'path';
-import { PrismaClient } from '@prisma/client';
 import pino from 'pino';
+import ProxyAgent from 'proxy-agent';
 import { toDataURL } from 'qrcode';
 import type { WebSocket } from 'ws';
+import { useSession } from './session';
 import { useLogger, usePrisma } from './shared';
-import { debugEvents, delay } from './utils';
-
-type Session = WASocket & {
-  destroy: () => Promise<void>;
-  store: Store;
-};
+import { initStore, Store } from './store';
+import { delay, pick } from './utils';
 
 const sessions = new Map<string, Session>();
 const retries = new Map<string, number>();
-const SSEQRGenerations = new Map<string, number>();
+const QRGenerations = new Map<string, number>();
 const prisma = new PrismaClient();
-
 // initialize logger
 // make sure logs/wa.log exists
 const logFilePath = `${__dirname}/logs/wa.log`;
 fsPromises.mkdir(`${__dirname}/logs`, { recursive: true });
 fsPromises.writeFile(logFilePath, '');
 
-const loggerTransport = pino.transport({
-  targets: [
-    {
-      target: 'pino/file',
-      options: { destination: logFilePath },
-    },
-    {
-      target: 'pino-pretty',
-    },
-  ],
-});
-
-const logger = pino(
-  {
-    level: process.env.LOG_LEVEL || 'debug',
-  },
-  loggerTransport
-);
-
 const RECONNECT_INTERVAL = Number(process.env.RECONNECT_INTERVAL || 0);
 const MAX_RECONNECT_RETRIES = Number(process.env.MAX_RECONNECT_RETRIES || 5);
 const MAX_QR_GENERATION = Number(process.env.MAX_QR_GENERATION || 5);
-const SESSION_CONFIG_ID = 'session-config';
+export const SESSION_CONFIG_ID = 'session-config';
 
 export async function init() {
+  const loggerTransport = pino.transport({
+    targets: [
+      {
+        target: 'pino/file',
+        options: { destination: logFilePath },
+      },
+      {
+        target: 'pino-pretty',
+      },
+    ],
+  });
+
   initStore({
     prisma, // Prisma client instance
-    logger: logger as any, // Pino logger (Optional)
+    logger: pino(
+      {
+        level: process.env.LOG_LEVEL || 'debug',
+      },
+      loggerTransport
+    ) as any, // Pino logger (Optional)
   });
 
   const sessions = await usePrisma().session.findMany({
@@ -74,8 +66,9 @@ export async function init() {
   });
 
   for (const { sessionId, data } of sessions) {
-    const { readIncomingMessages, ...socketConfig } = JSON.parse(data);
-    createSession({ sessionId, readIncomingMessages, socketConfig });
+    const { readIncomingMessages, proxy, webhook, ...socketConfig } = JSON.parse(data);
+
+    Session.create({ sessionId, readIncomingMessages, proxy, webhook, socketConfig });
   }
 }
 
@@ -90,210 +83,247 @@ function shouldReconnect(sessionId: string) {
   return false;
 }
 
-type createSessionOptions = {
+type SessionOptions = {
   sessionId: string;
   res?: Response;
   SSE?: boolean;
   readIncomingMessages?: boolean;
+  proxy?: string;
+  webhook?: {
+    url: string | string[];
+    events: 'all' | (keyof BaileysEventMap)[];
+  };
   socketConfig?: SocketConfig;
 };
 
-export async function createSession(options: createSessionOptions) {
-  const { sessionId, res, SSE = false, readIncomingMessages = false, socketConfig } = options;
-  const configID = `${SESSION_CONFIG_ID}-${sessionId}`;
-  let connectionState: Partial<ConnectionState> = { connection: 'close' };
+export class Session {
+  private connectionState: Partial<ConnectionState> = { connection: 'close' };
+  private lastGeneratedQR: string | null = null;
+  public readonly socket: ReturnType<typeof makeWASocket>;
+  public readonly store: Store;
 
-  const destroy = async (logout = true) => {
+  constructor(
+    private readonly sessionState: Awaited<ReturnType<typeof useSession>>,
+    private readonly options: SessionOptions
+  ) {
+    const { sessionId, socketConfig, proxy } = options;
+    this.socket = makeWASocket({
+      printQRInTerminal: true,
+      browser: Browsers.ubuntu('Chrome'),
+      generateHighQualityLinkPreview: true,
+      ...socketConfig,
+      logger: useLogger(),
+      agent: proxy ? new ProxyAgent() : undefined,
+      auth: {
+        creds: sessionState.state.creds,
+        keys: makeCacheableSignalKeyStore(sessionState.state.keys, useLogger()),
+      },
+      shouldIgnoreJid: (jid) => isJidBroadcast(jid),
+      getMessage: async (key) => {
+        const data = await usePrisma().message.findFirst({
+          where: { remoteJid: key.remoteJid!, id: key.id!, sessionId },
+        });
+        return (data?.message || undefined) as proto.IMessage | undefined;
+      },
+    });
+
+    this.bindEvents();
+    this.store = new Store(sessionId, this.socket.ev);
+    sessions.set(sessionId, this);
+  }
+
+  public static async create(options: SessionOptions) {
+    const { sessionId, readIncomingMessages = false, proxy, webhook, socketConfig } = options;
+    const configID = `${SESSION_CONFIG_ID}-${sessionId}`;
+    const data = JSON.stringify({
+      readIncomingMessages,
+      proxy,
+      webhook,
+      ...socketConfig,
+    });
+
+    const [sessionState] = await Promise.all([
+      useSession(sessionId),
+      usePrisma().session.upsert({
+        create: {
+          id: configID,
+          sessionId,
+          data,
+        },
+        update: { data },
+        where: { sessionId_id: { id: configID, sessionId } },
+      }),
+    ]);
+    return new Session(sessionState, options);
+  }
+
+  public static list() {
+    return Array.from(sessions.entries()).map(([id, session]) => ({
+      id,
+      status: session.status(),
+    }));
+  }
+
+  public static get(sessionId: string) {
+    return sessions.get(sessionId) ?? null;
+  }
+
+  public static async delete(sessionId: string) {
+    await Session.get(sessionId)?.destroy();
+  }
+
+  public static exists(sessionId: string) {
+    return sessions.has(sessionId);
+  }
+
+  public QR() {
+    return this.lastGeneratedQR;
+  }
+
+  public status() {
+    const state = ['CONNECTING', 'CONNECTED', 'DISCONNECTING', 'DISCONNECTED'];
+    let status = state[(this.socket.ws as WebSocket).readyState];
+    status = this.socket.user ? 'AUTHENTICATED' : status;
+    return status;
+  }
+
+  public async jidExists(jid: string, type: 'group' | 'number' = 'number') {
+    try {
+      if (type === 'number') {
+        const [result] = await this.socket.onWhatsApp(jid);
+        return !!result?.exists;
+      }
+
+      const groupMetadata = await this.socket.groupMetadata(jid);
+      return !!groupMetadata.id;
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+
+  public async destroy(logout = true) {
+    const { sessionId } = this.options;
+    const ws = this.socket.ws;
     try {
       await Promise.all([
-        logout && socket.logout(),
+        logout &&
+          ws.readyState !== ws.CLOSING &&
+          ws.readyState !== ws.CLOSED &&
+          this.socket.logout(),
         usePrisma().chat.deleteMany({ where: { sessionId } }),
         usePrisma().contact.deleteMany({ where: { sessionId } }),
         usePrisma().message.deleteMany({ where: { sessionId } }),
-        usePrisma().group.deleteMany({ where: { sessionId } }),
         usePrisma().session.deleteMany({ where: { sessionId } }),
       ]);
     } catch (e) {
       useLogger().error(e, 'An error occured during session destroy');
     } finally {
       sessions.delete(sessionId);
+      retries.delete(sessionId);
+      QRGenerations.delete(sessionId);
     }
-  };
+  }
 
-  const handleConnectionClose = () => {
-    const code = (connectionState.lastDisconnect?.error as Boom)?.output?.statusCode;
-    const restartRequired = code === DisconnectReason.restartRequired;
-    const doNotReconnect = !shouldReconnect(sessionId);
+  private bindEvents() {
+    const { sessionId, readIncomingMessages, webhook } = this.options;
+    this.socket.ev.on('creds.update', this.sessionState.saveCreds);
+    this.socket.ev.on('connection.update', (update) => {
+      this.connectionState = update;
+      const { connection } = update;
 
-    if (code === DisconnectReason.loggedOut || doNotReconnect) {
-      if (res) {
-        !SSE && !res.headersSent && res.status(500).json({ error: 'Unable to create session' });
-        res.end();
-      }
-      destroy(doNotReconnect);
-      return;
+      if (connection === 'open') {
+        this.lastGeneratedQR = null;
+        retries.delete(sessionId);
+        QRGenerations.delete(sessionId);
+      } else if (connection === 'close') this.handleConnectionClose();
+      this.handleConnectionUpdate();
+    });
+
+    if (readIncomingMessages) {
+      this.socket.ev.on('messages.upsert', async (m) => {
+        const message = m.messages[0];
+        if (message.key.fromMe || m.type !== 'notify') return;
+
+        await delay(1000);
+        await this.socket.readMessages([message.key]);
+      });
     }
 
-    if (!restartRequired) {
-      useLogger().info({ attempts: retries.get(sessionId) ?? 1, sessionId }, 'Reconnecting...');
-    }
-    setTimeout(() => createSession(options), restartRequired ? 0 : RECONNECT_INTERVAL);
-  };
+    if (webhook) {
+      const { url, events } = webhook;
+      this.socket.ev.process(async (socketEvents) => {
+        const data = events === 'all' ? socketEvents : pick(socketEvents, events);
+        if (Object.keys(data).length <= 0) return;
 
-  const handleNormalConnectionUpdate = async () => {
-    if (connectionState.qr?.length) {
-      if (res && !res.headersSent) {
         try {
-          const qr = await toDataURL(connectionState.qr);
-          res.status(200).json({ qr });
-          return;
+          await Promise.any(
+            (typeof url === 'string' ? [url] : url).map((url) =>
+              axios.post(url, data, {
+                timeout: 5000,
+              })
+            )
+          );
         } catch (e) {
-          useLogger().error(e, 'An error occured during QR generation');
-          res.status(500).json({ error: 'Unable to generate QR' });
+          useLogger().error(e, 'An error occured during webhook request');
         }
-      }
-      destroy();
+      });
     }
-  };
+  }
 
-  const handleSSEConnectionUpdate = async () => {
-    let qr: string | undefined = undefined;
-    if (connectionState.qr?.length) {
+  private async handleConnectionUpdate() {
+    const { sessionId, res, SSE } = this.options;
+    const { qr } = this.connectionState;
+    let generatedQR: string | null = null;
+    const currentQRGenerations = QRGenerations.get(sessionId) ?? -1;
+
+    if (qr) {
       try {
-        qr = await toDataURL(connectionState.qr);
+        generatedQR = await toDataURL(qr);
+        this.lastGeneratedQR = generatedQR;
+        QRGenerations.set(sessionId, currentQRGenerations + 1);
       } catch (e) {
         useLogger().error(e, 'An error occured during QR generation');
       }
     }
 
-    const currentGenerations = SSEQRGenerations.get(sessionId) ?? 0;
-    if (!res || res.writableEnded || (qr && currentGenerations >= MAX_QR_GENERATION)) {
-      res && !res.writableEnded && res.end();
-      destroy();
-      return;
+    const limitReached = currentQRGenerations >= MAX_QR_GENERATION;
+    if (limitReached) this.destroy();
+
+    if (!res || res.writableEnded) return;
+    if (SSE) {
+      res.write(
+        `data: ${JSON.stringify(
+          limitReached
+            ? { error: 'QR max generation attempts reached' }
+            : { ...this.connectionState, qr: generatedQR }
+        )}\n\n`
+      );
+      if (limitReached) res.end();
+    } else {
+      if (limitReached) res.status(500).json({ error: 'QR max generation attempts reached' }).end();
+      else if (!limitReached && qr && generatedQR) res.status(200).json({ qr: generatedQR });
+      else if (!limitReached && qr && !generatedQR)
+        res.status(500).json({ error: 'Unable to generate QR' });
     }
-
-    const data = { ...connectionState, qr };
-    if (qr) SSEQRGenerations.set(sessionId, currentGenerations + 1);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  const handleConnectionUpdate = SSE ? handleSSEConnectionUpdate : handleNormalConnectionUpdate;
-
-  const { state, saveCreds } = await useSession(sessionId);
-
-  const socket = makeWASocket({
-    printQRInTerminal: true,
-    browser: Browsers.windows('Chrome'),
-    generateHighQualityLinkPreview: true,
-    ...socketConfig,
-    auth: {
-      creds: (state as { creds: any }).creds as any,
-      keys: makeCacheableSignalKeyStore((state as { keys: any }).keys as any, useLogger() as any),
-    },
-    logger: useLogger() as any,
-    shouldIgnoreJid: (jid) => isJidBroadcast(jid),
-    getMessage: async (key) => {
-      const data = await usePrisma().message.findFirst({
-        where: { remoteJid: key.remoteJid!, id: key.id!, sessionId },
-      });
-      return (data?.message || undefined) as proto.IMessage | undefined;
-    },
-  });
-
-  const store = new Store(sessionId, socket.ev);
-  sessions.set(sessionId, { ...socket, destroy, store });
-
-  socket.ev.on('creds.update', saveCreds);
-
-  socket.ev.on('connection.update', (update) => {
-    connectionState = update;
-    const { connection } = update;
-
-    if (connection === 'open') {
-      retries.delete(sessionId);
-      SSEQRGenerations.delete(sessionId);
-    }
-    if (connection === 'close') handleConnectionClose();
-    handleConnectionUpdate();
-  });
-
-  if (readIncomingMessages) {
-    socket.ev.on('messages.upsert', async (m) => {
-      const message = m.messages[0];
-      if (message.key.fromMe || m.type !== 'notify') return;
-
-      await delay(1000);
-      await socket.readMessages([message.key]);
-    });
   }
 
-  // Debug events
-  debugEvents(socket.ev, [
-    'messaging-history.set',
-    'groups.upsert',
-    'chats.upsert',
-    'contacts.update',
-    'contacts.upsert',
-  ]);
+  private handleConnectionClose() {
+    const { sessionId, res, SSE } = this.options;
+    const code = (this.connectionState.lastDisconnect?.error as Boom)?.output?.statusCode;
+    const restartRequired = code === DisconnectReason.restartRequired;
+    const doNotReconnect = !shouldReconnect(sessionId);
 
-  await usePrisma().session.upsert({
-    create: {
-      id: configID,
-      sessionId,
-      data: JSON.stringify({ readIncomingMessages, ...socketConfig }),
-    },
-    update: {},
-    where: { sessionId_id: { id: configID, sessionId } },
-  });
-}
-
-export function getSessionStatus(session: Session) {
-  const state = ['CONNECTING', 'CONNECTED', 'DISCONNECTING', 'DISCONNECTED'];
-  let status = state[(session.ws as WebSocket).readyState];
-  status = session.user ? 'AUTHENTICATED' : status;
-  return status;
-}
-
-export function listSessions() {
-  return Array.from(sessions.entries()).map(([id, session]) => ({
-    id,
-    status: getSessionStatus(session),
-  }));
-}
-
-export function getSession(sessionId: string) {
-  return sessions.get(sessionId);
-}
-
-export async function deleteSession(sessionId: string) {
-  sessions.get(sessionId)?.destroy();
-}
-
-export function sessionExists(sessionId: string) {
-  return sessions.has(sessionId);
-}
-
-export async function jidExists(
-  session: Session,
-  jid: string,
-  type: 'group' | 'number' = 'number'
-) {
-  try {
-    if (type === 'number') {
-      const [result] = await session.onWhatsApp(jid);
-      return !!result?.exists;
+    if (code === DisconnectReason.loggedOut || doNotReconnect) {
+      if (res && !res.writableEnded) {
+        !SSE && res.status(500).json({ error: 'Unable to create session' });
+        res.end();
+      }
+      return this.destroy(doNotReconnect);
     }
 
-    const groupMeta = await session.groupMetadata(jid);
-    return !!groupMeta.id;
-  } catch (e) {
-    return Promise.reject(e);
+    if (!restartRequired) {
+      useLogger().info({ attempts: retries.get(sessionId) ?? 1, sessionId }, 'Reconnecting...');
+    }
+    setTimeout(() => Session.create(this.options), restartRequired ? 0 : RECONNECT_INTERVAL);
   }
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-// export async function dump(fileName: string, data: any) {
-//   const path = join(__dirname, '..', 'debug', `${fileName}.json`);
-//   await writeFile(path, JSON.stringify(data, null, 2));
-// }

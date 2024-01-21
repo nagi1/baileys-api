@@ -5,11 +5,12 @@ import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
 export default function contactHandler(sessionId: string, event: BaileysEventEmitter) {
-  const prisma = usePrisma();
-  const logger = useLogger();
   let listening = false;
 
   const set: BaileysEventHandler<'messaging-history.set'> = async ({ contacts, isLatest }) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
+
     try {
       if (contacts.length === 0) {
         logger.info('No contacts to sync');
@@ -48,6 +49,8 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const upsert: BaileysEventHandler<'contacts.upsert'> = async (contacts) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     try {
       await Promise.any(
         contacts
@@ -79,6 +82,8 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
   };
 
   const update: BaileysEventHandler<'contacts.update'> = async (updates) => {
+    const prisma = usePrisma();
+    const logger = useLogger();
     for (const updateData of updates) {
       try {
         const data = transformPrisma(updateData);

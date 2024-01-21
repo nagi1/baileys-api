@@ -1,18 +1,23 @@
 import type { RequestHandler } from 'express';
 import { useLogger, usePrisma } from '../shared';
-import { getSession, jidExists } from '../wa';
+import { serializePrisma } from '../utils';
+import { Session } from '../wa';
 import { makePhotoURLHandler } from './misc';
 
 export const list: RequestHandler = async (req, res) => {
+  const prisma = usePrisma();
+  const logger = useLogger();
   try {
     const { sessionId } = req.params;
     const { cursor = undefined, limit = 25 } = req.query;
-    const contacts = await usePrisma().contact.findMany({
-      cursor: cursor ? { pkId: Number(cursor) } : undefined,
-      take: Number(limit),
-      skip: cursor ? 1 : 0,
-      where: { id: { endsWith: 's.whatsapp.net' }, sessionId },
-    });
+    const contacts = (
+      await prisma.contact.findMany({
+        cursor: cursor ? { pkId: Number(cursor) } : undefined,
+        take: Number(limit),
+        skip: cursor ? 1 : 0,
+        where: { id: { endsWith: 's.whatsapp.net' }, sessionId },
+      })
+    ).map((m) => serializePrisma(m));
 
     res.status(200).json({
       data: contacts,
@@ -23,50 +28,53 @@ export const list: RequestHandler = async (req, res) => {
     });
   } catch (e) {
     const message = 'An error occured during contact list';
-    useLogger().error(e, message);
+    logger.error(e, message);
     res.status(500).json({ error: message });
   }
 };
 
 export const listBlocked: RequestHandler = async (req, res) => {
+  const logger = useLogger();
   try {
-    const session = getSession(req.params.sessionId)!;
-    const data = await session.fetchBlocklist();
+    const session = Session.get(req.params.sessionId)!;
+    const data = await session.socket.fetchBlocklist();
     res.status(200).json(data);
   } catch (e) {
     const message = 'An error occured during blocklist fetch';
-    useLogger().error(e, message);
+    logger.error(e, message);
     res.status(500).json({ error: message });
   }
 };
 
 export const updateBlock: RequestHandler = async (req, res) => {
+  const logger = useLogger();
   try {
-    const session = getSession(req.params.sessionId)!;
-    const { jid, action = 'block' } = req.body;
+    const session = Session.get(req.params.sessionId)!;
+    const { jid, action } = req.body;
 
-    const exists = await jidExists(session, jid);
+    const exists = await session.jidExists(jid);
     if (!exists) return res.status(400).json({ error: 'Jid does not exists' });
 
-    await session.updateBlockStatus(jid, action);
+    await session.socket.updateBlockStatus(jid, action);
     res.status(200).json({ message: `Contact ${action}ed` });
   } catch (e) {
     const message = 'An error occured during blocklist update';
-    useLogger().error(e, message);
+    logger.error(e, message);
     res.status(500).json({ error: message });
   }
 };
 
 export const check: RequestHandler = async (req, res) => {
+  const logger = useLogger();
   try {
     const { sessionId, jid } = req.params;
-    const session = getSession(sessionId)!;
+    const session = Session.get(sessionId)!;
 
-    const exists = await jidExists(session, jid);
+    const exists = await session.jidExists(jid);
     res.status(200).json({ exists });
   } catch (e) {
     const message = 'An error occured during jid check';
-    useLogger().error(e, message);
+    logger.error(e, message);
     res.status(500).json({ error: message });
   }
 };
