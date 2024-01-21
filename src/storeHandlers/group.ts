@@ -11,6 +11,12 @@ export default function groupHandler(sessionId: string, event: BaileysEventEmitt
 
   const upsert: BaileysEventHandler<'groups.upsert'> = async (groups) => {
     try {
+      if (groups.length === 0) {
+        logger.info('No groups to sync');
+
+        return;
+      }
+
       await Promise.any(
         groups
           .map((g) => transformPrisma(g))
@@ -23,6 +29,8 @@ export default function groupHandler(sessionId: string, event: BaileysEventEmitt
             })
           )
       );
+
+      logger.info({ groups: groups.length }, 'Synced groups');
     } catch (e) {
       logger.error(e, 'An error occurred during groups upsert');
     }

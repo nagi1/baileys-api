@@ -231,6 +231,7 @@ export async function createSession(options: createSessionOptions) {
   // Debug events
   debugEvents(socket.ev, [
     'messaging-history.set',
+    'groups.upsert',
     'chats.upsert',
     'contacts.update',
     'contacts.upsert',
