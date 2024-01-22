@@ -21,7 +21,7 @@ import type { WebSocket } from 'ws';
 import { useSession } from './session';
 import { useLogger, usePrisma } from './shared';
 import { initStore, Store } from './store';
-import { delay, downloadMessage, pick, sendWebhook } from './utils';
+import { delay, pick, sendWebhook } from './utils';
 
 const sessions = new Map<string, Session>();
 const retries = new Map<string, number>();
@@ -283,50 +283,6 @@ export class Session {
                     ...eventData,
                     session: sessionId,
                 };
-
-                const messageEvent = data['messages.upsert'] || { messages: [] };
-
-                // check if the data is a message upsert event
-                // Todo check this
-                messageEvent?.messages?.map(async (messageObj: proto.IWebMessageInfo, index) => {
-                    if (!messageObj.message) return;
-
-                    const messageType = Object.keys(messageObj.message)[0] ?? null;
-
-                    if (
-                        typeof messageType === null ||
-                        ['protocolMessage', 'senderKeyDistributionMessage'].includes(messageType)
-                    )
-                        return;
-
-                    if (messageType === 'conversation') {
-                        data['messages.upsert'][index]['text'] = messageEvent;
-                    }
-
-                    switch (messageType) {
-                        case 'imageMessage':
-                            data['messages.upsert'][index]['messageContents'] = await downloadMessage(
-                                messageObj.message.imageMessage,
-                                'image'
-                            );
-                            break;
-                        case 'videoMessage':
-                            data['messages.upsert'][index]['messageContents'] = await downloadMessage(
-                                messageObj.message.videoMessage,
-                                'video'
-                            );
-                            break;
-                        case 'audioMessage':
-                            data['messages.upsert'][index]['messageContents'] = await downloadMessage(
-                                messageObj.message.audioMessage,
-                                'audio'
-                            );
-                            break;
-                        default:
-                            data['messages.upsert'][index]['messageContents'] = messageEvent;
-                            break;
-                    }
-                });
 
                 try {
                     await Promise.any((typeof url === 'string' ? [url] : url).map((url) => sendWebhook(url, data)));
