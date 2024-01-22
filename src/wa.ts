@@ -5,6 +5,7 @@ import makeWASocket, {
     Browsers,
     ConnectionState,
     DisconnectReason,
+    fetchLatestBaileysVersion,
     isJidBroadcast,
     makeCacheableSignalKeyStore,
     proto,
@@ -65,9 +66,16 @@ export async function init() {
         where: { id: { startsWith: SESSION_CONFIG_ID } },
     });
 
+    // Fetch latest version of WA Web
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    useLogger().info(`using WA v${version.join('.')}, isLatest: ${isLatest}`);
+
     for (const { sessionId, data } of sessions) {
         const { readIncomingMessages, proxy, webhook, ...socketConfig } = JSON.parse(data);
 
+        socketConfig.version = version;
+
+        // Load store
         Session.create({ sessionId, readIncomingMessages, proxy, webhook, socketConfig });
     }
 }
@@ -113,6 +121,7 @@ export class Session {
         private readonly options: SessionOptions
     ) {
         const { sessionId, socketConfig, proxy } = options;
+
         this.socket = makeWASocket({
             printQRInTerminal: true,
             browser: Browsers.ubuntu('Chrome'),
@@ -161,6 +170,7 @@ export class Session {
                 where: { sessionId_id: { id: configID, sessionId } },
             }),
         ]);
+
         return new Session(sessionState, options);
     }
 
@@ -380,6 +390,7 @@ export class Session {
         if (!restartRequired) {
             useLogger().info({ attempts: retries.get(sessionId) ?? 1, sessionId }, 'Reconnecting...');
         }
+
         setTimeout(() => Session.create(this.options), restartRequired ? 0 : RECONNECT_INTERVAL);
     }
 }
