@@ -354,9 +354,11 @@ export class Session {
         }
 
         const limitReached = currentQRGenerations >= MAX_QR_GENERATION;
+
         if (limitReached) this.destroy();
 
         if (!res || res.writableEnded) return;
+
         if (SSE) {
             res.write(
                 `data: ${JSON.stringify(

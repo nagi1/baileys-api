@@ -77,17 +77,20 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
     const update: BaileysEventHandler<'messages.update'> = async (updates) => {
         const prisma = usePrisma();
         const logger = useLogger();
+
         for (const { update, key } of updates) {
             try {
                 await prisma.$transaction(async (tx) => {
                     const prevData = await tx.message.findFirst({
                         where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
                     });
+
                     if (!prevData) {
                         return logger.info({ update }, 'Got update for non existent message');
                     }
 
                     const data = { ...prevData, ...update } as proto.IWebMessageInfo;
+
                     await tx.message.update({
                         where: {
                             sessionId_remoteJid_id: {
