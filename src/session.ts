@@ -209,12 +209,7 @@ export class Session {
         process.on('uncaughtException', async (error) => {
             useLogger().error(error, 'Uncaught Exception');
 
-            // console.log('Reconnecting... from uncaughtException', {
-            //     sessionId,
-            //     error: (this.connectionState.lastDisconnect?.error as Boom)?.output.payload.message,
-            // });
-
-            // await Session.create(this.options);
+            this.reconnect();
         });
 
         process.on('unhandledRejection', async (reason, promise) => {
