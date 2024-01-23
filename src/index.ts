@@ -2,7 +2,7 @@ import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
 import routes from './routes';
-import { init } from './wa';
+import { init } from './whatsappInit';
 
 const app = express();
 app.use(cors());

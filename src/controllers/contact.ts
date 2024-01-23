@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
+import { Session } from '../session';
 import { useLogger, usePrisma } from '../shared';
 import { serializePrisma } from '../utils';
-import { Session } from '../wa';
 import { makePhotoURLHandler } from './misc';
 
 export const list: RequestHandler = async (req, res) => {

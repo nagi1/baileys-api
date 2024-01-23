@@ -1,8 +1,10 @@
 import { Boom } from '@hapi/boom';
 import { DisconnectReason } from '@whiskeysockets/baileys';
 import type { RequestHandler } from 'express';
+import { Session } from '../session';
 import { useLogger, usePrisma } from '../shared';
-import { Session, SESSION_CONFIG_ID } from '../wa';
+import { response } from '../utils';
+import { SESSION_CONFIG_ID } from '../whatsappInit';
 
 export const list: RequestHandler = (req, res) => {
     res.status(200).json(Session.list());
@@ -21,10 +23,17 @@ export const qr: RequestHandler = (req, res) => {
 };
 
 export const add: RequestHandler = async (req, res) => {
-    const { sessionId, readIncomingMessages, proxy, webhook, ...socketConfig } = req.body;
+    const { sessionId, readIncomingMessages, proxy, webhook, authType, phoneNumber, ...socketConfig } = req.body;
 
-    if (Session.exists(sessionId)) return res.status(400).json({ error: 'Session already exists' });
-    Session.create({ sessionId, res, readIncomingMessages, proxy, webhook, socketConfig });
+    if (Session.exists(sessionId)) {
+        return response(res, 400, false, 'Session already exists', {
+            sessionId,
+        });
+    }
+
+    const usePairingCode = authType === 'code';
+
+    Session.create({ sessionId, res, readIncomingMessages, proxy, webhook, socketConfig, usePairingCode, phoneNumber });
 };
 
 export const update: RequestHandler = async (req, res) => {

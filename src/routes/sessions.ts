@@ -27,7 +27,15 @@ router.get('/', controller.list);
 router.get('/:sessionId', sessionValidator, controller.find);
 router.get('/:sessionId/status', sessionValidator, controller.status);
 router.get('/:sessionId/qr', sessionValidator, controller.qr);
-router.post('/add', body('sessionId').isString().notEmpty(), ...sessionRules, requestValidator, controller.add);
+router.post(
+    '/add',
+    body('sessionId').isString().notEmpty(),
+    body('authType').isIn(['code', 'qr']).optional().default('qr'),
+    body('phoneNumber').if(body('authType').equals('code')).isString().notEmpty(),
+    ...sessionRules,
+    requestValidator,
+    controller.add
+);
 router.get('/:sessionId/add-sse', controller.addSSE);
 router.patch('/:sessionId', ...sessionRules, requestValidator, sessionValidator, controller.update);
 router.delete('/:sessionId', sessionValidator, controller.del);

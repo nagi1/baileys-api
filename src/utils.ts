@@ -1,6 +1,7 @@
 import { downloadContentFromMessage, toNumber } from '@whiskeysockets/baileys';
 import axios, { AxiosRequestConfig } from 'axios';
 import { randomBytes } from 'crypto';
+import { Response } from 'express';
 import fs from 'fs';
 import { curve } from 'libsignal';
 import Long from 'long';
@@ -190,4 +191,22 @@ export const sendWebhook = (url: string | null, data: object, axiosConfig: Axios
             logger.info(`Retrying webhook send to ${url}, tries left: ${tries}`);
         }
     });
+};
+
+export const response = (
+    res: Response,
+    statusCode: number = 200,
+    success: boolean = false,
+    message: string = '',
+    data: object = {}
+): void => {
+    res.status(statusCode);
+
+    res.json({
+        success,
+        message,
+        data,
+    });
+
+    res.end();
 };

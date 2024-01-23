@@ -1,9 +1,9 @@
 import type { proto, WAGenericMediaMessage, WAMessage } from '@whiskeysockets/baileys';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import type { RequestHandler } from 'express';
+import { Session } from '../session';
 import { useLogger, usePrisma } from '../shared';
 import { delay as delayMs, serializePrisma } from '../utils';
-import { Session } from '../wa';
 
 export const list: RequestHandler = async (req, res) => {
     try {

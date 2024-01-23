@@ -159,6 +159,7 @@ model Session {
     sessionId String @map("session_id")
     id        String @map("id")
     data      String @db.LongText @map("data")
+    updatedAt DateTime @updatedAt @map("updated_at") @default(now())
 
     @@unique([sessionId, id], map: "unique_id_per_session_id_session")
     @@index([sessionId])

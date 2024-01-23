@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
+import { Session } from '../session';
 import { useLogger } from '../shared';
-import { Session } from '../wa';
 
 export const makePhotoURLHandler =
     (type: 'number' | 'group' = 'number'): RequestHandler =>
