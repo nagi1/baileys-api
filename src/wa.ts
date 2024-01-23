@@ -264,7 +264,7 @@ export class Session {
             });
         }
 
-        if (webhook.enabled) {
+        if (webhook?.enabled) {
             const { url: webhookUrls, events } = webhook;
 
             const url = webhookUrls ?? process.env.WEBHOOK_URL ?? null;
