@@ -51,11 +51,11 @@ export async function init() {
 
     // Create sessions
     for (const { sessionId, data } of sessions) {
-        const { readIncomingMessages, proxy, webhook, ...socketConfig } = JSON.parse(data);
+        const { readIncomingMessages, proxy, webhook, usePairingCode, phoneNumber, ...socketConfig } = JSON.parse(data);
 
         socketConfig.version = version;
 
         // Create session
-        Session.create({ sessionId, readIncomingMessages, proxy, webhook, socketConfig });
+        Session.create({ sessionId, readIncomingMessages, proxy, webhook, usePairingCode, phoneNumber, socketConfig });
     }
 }

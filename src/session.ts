@@ -209,11 +209,12 @@ export class Session {
         process.on('uncaughtException', async (error) => {
             useLogger().error(error, 'Uncaught Exception');
 
-            this.reconnect();
+            throw error;
+            // this.reconnect();
         });
 
-        process.on('unhandledRejection', async (reason, promise) => {
-            useLogger().error({ promise, reason }, 'Unhandled Rejection');
+        process.on('unhandledRejection', async (error) => {
+            useLogger().error(error, 'Unhandled Rejection');
         });
 
         this.socket.ev.on('creds.update', this.sessionState.saveCreds);
@@ -233,7 +234,7 @@ export class Session {
                 useLogger().info('Session ' + sessionId + ' created');
             } else if (connection === 'close') await this.handleConnectionClose();
 
-            this.handleConnectionUpdate();
+            await this.handleConnectionUpdate();
         });
 
         if (readIncomingMessages) {
@@ -277,7 +278,7 @@ export class Session {
     }
 
     private async handleConnectionUpdate() {
-        const { sessionId, res, SSE, usePairingCode = false, phoneNumber = null } = this.options;
+        const { sessionId, res, SSE, usePairingCode, phoneNumber } = this.options;
 
         if (
             usePairingCode &&
@@ -285,7 +286,11 @@ export class Session {
             !this.sessionState.state.creds.registered &&
             !this.sessionState.state.creds.account
         ) {
-            await this.socket.waitForConnectionUpdate((update) => Boolean(update.qr));
+            await this.socket.waitForConnectionUpdate((update) => {
+                useLogger().info({ update, connectionState: this.connectionState }, 'Connection Update event');
+                return Boolean(update.qr);
+            });
+
             const code = await this.socket.requestPairingCode(phoneNumber);
 
             if (res && !res.headersSent && code !== undefined) {

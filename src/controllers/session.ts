@@ -41,13 +41,23 @@ export const update: RequestHandler = async (req, res) => {
     const logger = useLogger();
     try {
         const { sessionId } = req.params;
-        const { readIncomingMessages, proxy, webhook, ...socketConfig } = req.body;
+        const { readIncomingMessages, proxy, webhook, authType, phoneNumber, ...socketConfig } = req.body;
         const session = Session.get(sessionId)!;
 
         await prisma.session.update({
-            data: { data: JSON.stringify({ readIncomingMessages, proxy, webhook, ...socketConfig }) },
+            data: {
+                data: JSON.stringify({
+                    readIncomingMessages,
+                    proxy,
+                    webhook,
+                    authType,
+                    phoneNumber,
+                    ...socketConfig,
+                }),
+            },
             where: { sessionId_id: { id: `${SESSION_CONFIG_ID}-${sessionId}`, sessionId } },
         });
+
         session.socket.end(new Boom('Restarting session', { statusCode: DisconnectReason.restartRequired }));
         res.status(200).json({ message: 'Session updated' });
     } catch (e) {

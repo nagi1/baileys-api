@@ -3,9 +3,11 @@ import 'dotenv/config';
 import express from 'express';
 import routes from './routes';
 import { init } from './whatsappInit';
+const compression = require('compression');
 
 const app = express();
 app.use(cors());
+app.use(compression());
 app.use(express.json());
 app.use('/', routes);
 app.all('*', (req, res) => res.status(404).json({ error: 'URL not found' }));
