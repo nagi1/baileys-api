@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { BaileysEventEmitter, SocketConfig } from '@whiskeysockets/baileys';
+import type { SessionOptions } from './session';
 import { setLogger, setPrisma } from './shared';
 import * as handlers from './storeHandlers';
 
@@ -22,11 +23,12 @@ export class Store {
     private readonly contactHandler;
     private readonly groupHandler;
 
-    constructor(sessionId: string, event: BaileysEventEmitter) {
-        this.chatHandler = handlers.chatHandler(sessionId, event);
-        this.messageHandler = handlers.messageHandler(sessionId, event);
-        this.contactHandler = handlers.contactHandler(sessionId, event);
-        this.groupHandler = handlers.groupHandler(sessionId, event);
+    constructor(sessionOption: SessionOptions, event: BaileysEventEmitter) {
+        this.chatHandler = handlers.chatHandler(sessionOption, event);
+        this.messageHandler = handlers.messageHandler(sessionOption, event);
+        this.contactHandler = handlers.contactHandler(sessionOption, event);
+        this.groupHandler = handlers.groupHandler(sessionOption, event);
+
         this.listen();
     }
 

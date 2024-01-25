@@ -10,10 +10,6 @@ const sessionRules = [
     body('webhook').isObject().optional(),
     body('webhook.enabled').isBoolean().optional().default(false),
     oneOf([
-        body('webhook.url').if(body('webhook').exists()).isString().optional(),
-        [body('webhook.url').if(body('webhook').exists()).isArray({ min: 1 }), body('webhook.url.*').isString()],
-    ]),
-    oneOf([
         body('webhook.events').if(body('webhook').exists()).equals('all'),
         [
             body('webhook.events').if(body('webhook').exists()).isArray({ min: 1 }),

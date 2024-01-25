@@ -1,15 +1,29 @@
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import type { BaileysEventEmitter } from '@whiskeysockets/baileys';
+import type { BaileysEventEmitter, Contact } from '@whiskeysockets/baileys';
+import { sendWebhook } from '../services/webhook';
+import type { SessionOptions } from '../session';
 import { useLogger, usePrisma } from '../shared';
-import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
-export default function contactHandler(sessionId: string, event: BaileysEventEmitter) {
-    let listening = false;
+export default function contactHandler(sessionOption: SessionOptions, event: BaileysEventEmitter) {
+    let hasStartedListening = false;
+    const sessionId = sessionOption.sessionId;
 
-    const set: BaileysEventHandler<'messaging-history.set'> = async ({ contacts, isLatest }) => {
+    /**
+     * Sets the contacts in the store.
+     *
+     * @param contacts - The contacts to be set.
+     * @param isLatest - A flag indicating whether the contacts are the latest version.
+     * @returns A Promise that resolves when the contacts are set.
+     */
+    async function set({ contacts, isLatest }: { contacts: Contact[]; isLatest: boolean }): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'messaging-history.set',
+            payload: { as: 'contacts.set', contacts, isLatest },
+        });
 
         try {
             if (contacts.length === 0) {
@@ -44,11 +58,19 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
             await Promise.any(upsertPromises);
             logger.info({ contacts: contacts.length }, 'Synced contacts');
         } catch (e) {
-            logger.error(e, 'An error occured during contacts set');
+            logger.error(e, 'An error occurred during contacts set');
         }
-    };
+    }
 
-    const upsert: BaileysEventHandler<'contacts.upsert'> = async (contacts) => {
+    /**
+     * Upserts the given contacts into the database.
+     * If a contact with the same sessionId and id already exists, it will be updated.
+     * Otherwise, a new contact will be created.
+     *
+     * @param contacts - The contacts to upsert.
+     * @returns A Promise that resolves when the upsert operation is complete.
+     */
+    async function upsert(contacts: Contact[]): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
         try {
@@ -77,11 +99,17 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
                     })
             );
         } catch (e) {
-            logger.error(e, 'An error occured during contacts upsert');
+            logger.error(e, 'An error occurred during contacts upsert');
         }
-    };
+    }
 
-    const update: BaileysEventHandler<'contacts.update'> = async (updates) => {
+    /**
+     * Updates the contacts with the specified updates.
+     *
+     * @param updates - An array of partial contact objects containing the updates.
+     * @returns - Promise<void>
+     */
+    async function update(updates: Partial<Contact>[]) {
         const prisma = usePrisma();
         const logger = useLogger();
         for (const updateData of updates) {
@@ -110,27 +138,27 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
                 if (e instanceof PrismaClientKnownRequestError && e.code === 'P2025') {
                     return logger.info({ updateData }, 'Got update for non existent contact');
                 }
-                logger.error(e, 'An error occured during contact update');
+                logger.error(e, 'An error occurred during contact update');
             }
         }
-    };
+    }
 
     const listen = () => {
-        if (listening) return;
+        if (hasStartedListening) return;
 
         event.on('messaging-history.set', set);
         event.on('contacts.upsert', upsert);
         event.on('contacts.update', update);
-        listening = true;
+        hasStartedListening = true;
     };
 
     const unlisten = () => {
-        if (!listening) return;
+        if (!hasStartedListening) return;
 
         event.off('messaging-history.set', set);
         event.off('contacts.upsert', upsert);
         event.off('contacts.update', update);
-        listening = false;
+        hasStartedListening = false;
     };
 
     return { listen, unlisten };

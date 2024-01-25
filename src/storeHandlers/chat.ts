@@ -1,15 +1,30 @@
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import type { BaileysEventEmitter } from '@whiskeysockets/baileys';
+import type { BaileysEventEmitter, Chat, ChatUpdate } from '@whiskeysockets/baileys';
+import { sendWebhook } from '../services/webhook';
+import type { SessionOptions } from '../session';
 import { useLogger, usePrisma } from '../shared';
-import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
-export default function chatHandler(sessionId: string, event: BaileysEventEmitter) {
-    let listening = false;
+export default function chatHandler(sessionOption: SessionOptions, event: BaileysEventEmitter) {
+    let hasStartedListening = false;
+    const sessionId = sessionOption.sessionId;
 
-    const set: BaileysEventHandler<'messaging-history.set'> = async ({ chats, isLatest }) => {
+    /**
+     * Sets the chats in the store.
+     *
+     * @param chats - The array of chats to set.
+     * @param isLatest - Indicates whether the chats are the latest.
+     * @returns - A promise that resolves when the chats are set.
+     */
+    async function set({ chats, isLatest }): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'messaging-history.set',
+            payload: { as: 'chats.set', chats, isLatest },
+        });
+
         try {
             if (chats.length === 0) {
                 logger.info('No chats to sync');
@@ -17,6 +32,8 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
                 return;
             }
 
+            // if there's a chat that doesn't exist, create it
+            // otherwise, dont sync existing chats
             await prisma.$transaction(async (tx) => {
                 const existingIds = (
                     await tx.chat.findMany({
@@ -30,20 +47,32 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
                         // @ts-ignore
                         data: chats
                             .filter((c) => !existingIds.includes(c.id))
-                            .map((c) => ({ ...transformPrisma(c), sessionId })),
+                            .map((c) => ({ ...transformPrisma(c), sessionId: sessionOption.sessionId })),
                     })
                 ).count;
 
                 logger.info({ chatsAdded }, 'Synced chats');
             });
         } catch (e) {
-            logger.error(e, 'An error occured during chats set');
+            logger.error(e, 'An error occurred during chats set');
         }
-    };
+    }
 
-    const upsert: BaileysEventHandler<'chats.upsert'> = async (chats) => {
+    /**
+     * Upserts the given chats into the database.
+     *
+     * @param chats An array of chats to upsert.
+     * @returns A Promise that resolves when the upsert operation is complete.
+     */
+    async function upsert(chats: Chat[]): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'chats.upsert',
+            payload: { chats },
+        });
+
         try {
             await Promise.any(
                 chats
@@ -59,13 +88,29 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
                     )
             );
         } catch (e) {
-            logger.error(e, 'An error occured during chats upsert');
+            logger.error(e, 'An error occurred during chats upsert');
         }
-    };
+    }
 
-    const update: BaileysEventHandler<'chats.update'> = async (updates) => {
+    /**
+     * Updates the chat data based on the provided updates.
+     *
+     * This function takes an array of ChatUpdate objects containing the updated chat data.
+     * It sends a webhook event with the updates and updates the chat data in the database.
+     * If a chat already exists in the database, it updates the chat with the new data.
+     *
+     * @param updates - An array of ChatUpdate objects containing the updated chat data.
+     * @returns A Promise that resolves to void.
+     */
+    async function update(updates: ChatUpdate[]): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'chats.update',
+            payload: { chats: updates },
+        });
+
         for (const updateData of updates) {
             try {
                 const data = transformPrisma(updateData);
@@ -73,6 +118,7 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
                     where: { sessionId_id: { id: data.id!, sessionId } },
                 });
 
+                // here we update the unread count if it's a number
                 if (chatExists) {
                     await prisma.chat.update({
                         select: { pkId: true },
@@ -95,38 +141,71 @@ export default function chatHandler(sessionId: string, event: BaileysEventEmitte
                 logger.error(e, 'An error occurred during chat update');
             }
         }
-    };
+    }
 
-    const del: BaileysEventHandler<'chats.delete'> = async (ids) => {
+    /**
+     * Deletes chats with the specified IDs.
+     * @param ids - An array of chat IDs to delete.
+     * @returns A Promise that resolves when the deletion is complete.
+     */
+    async function del(ids: string[]): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'chats.delete',
+            payload: { chats: ids },
+        });
+
         try {
             await prisma.chat.deleteMany({
                 where: { id: { in: ids } },
             });
         } catch (e) {
-            logger.error(e, 'An error occured during chats delete');
+            logger.error(e, 'An error occurred during chats delete');
         }
-    };
+    }
+
+    /**
+     * Handles the event when a phone number is shared in a chat.
+     *
+     * @param update - The update object containing the lid and jid.
+     * @returns A Promise that resolves to void.
+     */
+    async function chatPhoneNumberShare(update: { lid: string; jid: string }): Promise<void> {
+        const prisma = usePrisma();
+        const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'chats.phoneNumberShare',
+            payload: { chats: update },
+        });
+
+        // Todo figure out what do do with this
+    }
 
     const listen = () => {
-        if (listening) return;
+        if (hasStartedListening) return;
 
         event.on('messaging-history.set', set);
         event.on('chats.upsert', upsert);
         event.on('chats.update', update);
         event.on('chats.delete', del);
-        listening = true;
+        event.on('chats.phoneNumberShare', chatPhoneNumberShare);
+
+        hasStartedListening = true;
     };
 
     const unlisten = () => {
-        if (!listening) return;
+        if (!hasStartedListening) return;
 
         event.off('messaging-history.set', set);
         event.off('chats.upsert', upsert);
         event.off('chats.update', update);
         event.off('chats.delete', del);
-        listening = false;
+        event.off('chats.phoneNumberShare', chatPhoneNumberShare);
+
+        hasStartedListening = false;
     };
 
     return { listen, unlisten };

@@ -20,7 +20,7 @@ export const list: RequestHandler = async (req, res) => {
             cursor: chats.length !== 0 && chats.length === Number(limit) ? chats[chats.length - 1].pkId : null,
         });
     } catch (e) {
-        const message = 'An error occured during chat list';
+        const message = 'An error occurred during chat list';
         useLogger().error(e, message);
         res.status(500).json({ error: message });
     }
@@ -46,7 +46,7 @@ export const find: RequestHandler = async (req, res) => {
                 messages.length !== 0 && messages.length === Number(limit) ? messages[messages.length - 1].pkId : null,
         });
     } catch (e) {
-        const message = 'An error occured during chat find';
+        const message = 'An error occurred during chat find';
         useLogger().error(e, message);
         res.status(500).json({ error: message });
     }

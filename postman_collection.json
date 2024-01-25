@@ -909,7 +909,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during chat list\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during chat list\"\n}"
                         }
                     ]
                 },
@@ -1106,7 +1106,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during chat find\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during chat find\"\n}"
                         }
                     ]
                 }
@@ -1293,7 +1293,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during chat list\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during chat list\"\n}"
                         }
                     ]
                 },
@@ -1448,7 +1448,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during jid check\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during jid check\"\n}"
                         }
                     ]
                 },
@@ -1603,7 +1603,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during photo fetch\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during photo fetch\"\n}"
                         }
                     ]
                 },
@@ -1743,7 +1743,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during blocklist fetch\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during blocklist fetch\"\n}"
                         }
                     ]
                 },
@@ -1910,7 +1910,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during blocklist update\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during blocklist update\"\n}"
                         }
                     ]
                 }
@@ -2097,7 +2097,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during group list\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during group list\"\n}"
                         }
                     ]
                 },
@@ -2252,7 +2252,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during group metadata fetch\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during group metadata fetch\"\n}"
                         }
                     ]
                 },
@@ -2407,7 +2407,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during photo fetch\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during photo fetch\"\n}"
                         }
                     ]
                 }
@@ -2594,7 +2594,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during message list\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during message list\"\n}"
                         }
                     ]
                 },
@@ -2761,7 +2761,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during message send\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during message send\"\n}"
                         }
                     ]
                 },
@@ -2928,7 +2928,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"results\": [\n        {\n            \"index\": 0,\n            \"result\": {\n                \"key\": {\n                    \"remoteJid\": \"62895xxxxx-1631xxxxx@g.us\",\n                    \"fromMe\": true,\n                    \"id\": \"BAE5DAXXXXXXX\"\n                },\n                \"message\": {\n                    \"extendedTextMessage\": {\n                        \"text\": \"Okay then!\"\n                    }\n                },\n                \"messageTimestamp\": \"1673019785\",\n                \"status\": \"PENDING\",\n                \"participant\": \"628132xxxxx:78@s.whatsapp.net\"\n            }\n        }\n    ],\n    \"errors\": [\n        {\n            \"index\": 1,\n            \"error\": \"An error occured during message send\"\n        }\n    ]\n}"
+                            "body": "{\n    \"results\": [\n        {\n            \"index\": 0,\n            \"result\": {\n                \"key\": {\n                    \"remoteJid\": \"62895xxxxx-1631xxxxx@g.us\",\n                    \"fromMe\": true,\n                    \"id\": \"BAE5DAXXXXXXX\"\n                },\n                \"message\": {\n                    \"extendedTextMessage\": {\n                        \"text\": \"Okay then!\"\n                    }\n                },\n                \"messageTimestamp\": \"1673019785\",\n                \"status\": \"PENDING\",\n                \"participant\": \"628132xxxxx:78@s.whatsapp.net\"\n            }\n        }\n    ],\n    \"errors\": [\n        {\n            \"index\": 1,\n            \"error\": \"An error occurred during message send\"\n        }\n    ]\n}"
                         },
                         {
                             "name": "Response Failed",
@@ -2995,7 +2995,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"results\": [],\n    \"errors\": [\n        {\n            \"index\": 0,\n            \"error\": \"An error occured during message send\"\n        },\n        {\n            \"index\": 1,\n            \"error\": \"An error occured during message send\"\n        }\n    ]\n}"
+                            "body": "{\n    \"results\": [],\n    \"errors\": [\n        {\n            \"index\": 0,\n            \"error\": \"An error occurred during message send\"\n        },\n        {\n            \"index\": 1,\n            \"error\": \"An error occurred during message send\"\n        }\n    ]\n}"
                         }
                     ]
                 },
@@ -3095,7 +3095,7 @@
                                 }
                             ],
                             "cookie": [],
-                            "body": "{\n    \"error\": \"An error occured during message media download\"\n}"
+                            "body": "{\n    \"error\": \"An error occurred during message media download\"\n}"
                         }
                     ]
                 }

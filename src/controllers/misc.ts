@@ -15,7 +15,7 @@ export const makePhotoURLHandler =
             const url = await session.socket.profilePictureUrl(jid, 'image');
             res.status(200).json({ url });
         } catch (e) {
-            const message = 'An error occured during photo fetch';
+            const message = 'An error occurred during photo fetch';
             useLogger().error(e, message);
             res.status(500).json({ error: message });
         }

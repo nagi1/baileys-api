@@ -8,16 +8,18 @@ import makeWASocket, {
     makeCacheableSignalKeyStore,
     proto,
     SocketConfig,
+    WAMessageKey,
 } from '@whiskeysockets/baileys';
 import { Response } from 'express';
 import NodeCache from 'node-cache';
 import ProxyAgent from 'proxy-agent';
 import { toDataURL } from 'qrcode';
 import type { WebSocket } from 'ws';
+import { sendWebhook } from './services/webhook';
 import { useLogger, usePrisma } from './shared';
 import { Store } from './store';
 import { useSession } from './useSession';
-import { delay, pick, response, sendWebhook } from './utils';
+import { delay, response } from './utils';
 import { sessions, SESSION_CONFIG_ID } from './whatsappInit';
 
 export const retries = new Map<string, number>();
@@ -33,9 +35,9 @@ export type SessionOptions = {
     SSE?: boolean;
     readIncomingMessages?: boolean;
     proxy?: string;
+    doNotIgnoreBroadcast?: boolean;
     webhook?: {
         enabled: boolean;
-        url: string | string[] | null;
         events: 'all' | (keyof BaileysEventMap)[];
     };
     socketConfig?: SocketConfig;
@@ -43,6 +45,11 @@ export type SessionOptions = {
     phoneNumber?: string;
 };
 
+/**
+ * Determines whether a session should reconnect based on the number of attempts made.
+ * @param sessionId - The ID of the session.
+ * @returns A boolean indicating whether the session should reconnect.
+ */
 export function shouldReconnect(sessionId: string) {
     const maxRetries = parseInt(process.env.MAX_RECONNECT_RETRIES) || 5;
     let attempts = retries.get(sessionId) ?? 0;
@@ -60,114 +67,162 @@ export function shouldReconnect(sessionId: string) {
     return false;
 }
 
+/**
+ * Represents a session object for interacting with the WhatsApp API.
+ */
 export class Session {
     private connectionState: Partial<ConnectionState> = { connection: 'close' };
     private lastGeneratedQR: string | null = null;
     public readonly socket: ReturnType<typeof makeWASocket>;
     public readonly store: Store;
 
+    /**
+     * Represents a session object for interacting with the WhatsApp API.
+     * @param sessionState - The state of the session.
+     * @param options - The options for the session.
+     */
     constructor(
         private readonly sessionState: Awaited<ReturnType<typeof useSession>>,
         private readonly options: SessionOptions
     ) {
         const { sessionId, socketConfig, proxy } = options;
 
+        const browser = socketConfig?.browser ?? Browsers.ubuntu('Chrome');
+
         this.socket = makeWASocket({
             printQRInTerminal: true,
-            browser: Browsers.ubuntu('Chrome'),
+            browser,
             generateHighQualityLinkPreview: true,
             ...socketConfig,
             logger: useLogger(),
             agent: proxy ? new ProxyAgent() : undefined,
+            // external map to store retry counts of messages when decryption/encryption fails
+            // keep this out of the socket itself, so as to prevent a message
+            //decryption/ encryption loop across socket restarts
             msgRetryCounterCache: new NodeCache({ stdTTL: 60, checkperiod: 120 }),
             auth: {
                 creds: sessionState.state.creds,
                 keys: makeCacheableSignalKeyStore(sessionState.state.keys, useLogger()),
             },
-            shouldIgnoreJid: (jid) => isJidBroadcast(jid),
-            getMessage: async (key) => {
-                const data = await usePrisma().message.findFirst({
-                    where: { remoteJid: key.remoteJid!, id: key.id!, sessionId },
-                });
+            // ignore all broadcast messages
+            shouldIgnoreJid: (jid) => (options?.doNotIgnoreBroadcast ? false : isJidBroadcast(jid)),
 
-                return (data?.message || undefined) as proto.IMessage | undefined;
-            },
+            // handle retries & poll updates
+            getMessage: this.getMessage,
         });
 
         this.bindEvents();
-        this.store = new Store(sessionId, this.socket.ev);
+
+        // Initialize store with the listeners for BAILEYS events
+        this.store = new Store(options, this.socket.ev);
+
+        // Add session to sessions map
         sessions.set(sessionId, this);
     }
 
+    /**
+     * Creates a new session with the given options.
+     * @param options - The options for the session.
+     * @returns A promise that resolves to a new Session instance.
+     */
     public static async create(options: SessionOptions) {
-        const {
-            sessionId,
-            readIncomingMessages = false,
-            proxy,
-            webhook,
-            socketConfig,
-            usePairingCode,
-            phoneNumber,
-        } = options;
+        const configID = `${SESSION_CONFIG_ID}-${options.sessionId}`;
 
-        const configID = `${SESSION_CONFIG_ID}-${sessionId}`;
-
-        const data = JSON.stringify({
-            usePairingCode,
-            phoneNumber,
-            readIncomingMessages,
-            proxy,
-            webhook,
-            ...socketConfig,
-        });
+        const data = JSON.stringify(options);
 
         const [sessionState, _]: [Awaited<ReturnType<typeof useSession>>, any] = await Promise.all([
-            useSession(sessionId),
+            // Get or create session state either from the database or from scratch (if it doesn't exist)
+            useSession(options.sessionId),
+
+            // Create session config in database, or update if it already exists
             usePrisma().session.upsert({
                 create: {
                     id: configID,
-                    sessionId,
+                    sessionId: options.sessionId,
                     data,
                 },
                 update: { data },
-                where: { sessionId_id: { id: configID, sessionId } },
+                where: { sessionId_id: { id: configID, sessionId: options.sessionId } },
             }),
         ]);
 
+        // Initialize session and socket to WA Web
         return new Session(sessionState, options);
     }
 
-    public static list() {
+    /**
+     * Returns an array of session objects containing the session ID and status.
+     * @returns An array of session objects.
+     */
+    public static list(): { id: string; status: string; options: SessionOptions }[] {
         return Array.from(sessions.entries()).map(([id, session]) => ({
             id,
             status: session.status(),
+            options: session.options,
         }));
     }
 
-    public static get(sessionId: string) {
+    public static get(sessionId: string): Session {
         return sessions.get(sessionId) ?? null;
     }
 
-    public static async delete(sessionId: string) {
+    /**
+     * Deletes a session with the specified session ID.
+     * @param sessionId The ID of the session to delete.
+     * @returns A Promise that resolves when the session is deleted.
+     */
+    public static async delete(sessionId: string): Promise<void> {
         await Session.get(sessionId)?.destroy();
     }
 
-    public static exists(sessionId: string) {
+    /**
+     * Checks if a session with the given sessionId exists.
+     * @param sessionId - The ID of the session to check.
+     * @returns A boolean indicating whether the session exists or not.
+     */
+    public static exists(sessionId: string): boolean {
         return sessions.has(sessionId);
     }
 
-    public QR() {
+    /**
+     * Retrieves a message based on the provided WAMessageKey.
+     * @param key The WAMessageKey object containing the remoteJid and id of the message.
+     * @returns The retrieved message as a proto.IMessage object, or undefined if not found.
+     */
+    protected async getMessage(key: WAMessageKey) {
+        const { sessionId } = this.options;
+
+        const data = await usePrisma().message.findFirst({
+            where: { remoteJid: key.remoteJid!, id: key.id!, sessionId },
+        });
+
+        return (data?.message || undefined) as proto.IMessage | undefined;
+    }
+
+    public getLatestGeneratedQR(): string | null {
         return this.lastGeneratedQR;
     }
 
-    public status() {
+    /**
+     * Returns the current status of the session.
+     */
+    public status(): string {
         const state = ['CONNECTING', 'CONNECTED', 'DISCONNECTING', 'DISCONNECTED'];
         let status = state[(this.socket.ws as WebSocket).readyState];
         status = this.socket.user ? 'AUTHENTICATED' : status;
+
         return status;
     }
 
-    public async jidExists(jid: string, type: 'group' | 'number' = 'number') {
+    /**
+     * Checks if an id exists on whatsapp or not.
+     *
+     * @param jid - The JID to check.
+     * @param type - The type of JID. Default is 'number'.
+     *
+     * @returns A promise that resolves to a boolean indicating whether the JID exists or not.
+     */
+    public async jidExists(jid: string, type: 'group' | 'number' = 'number'): Promise<boolean> {
         try {
             if (type === 'number') {
                 const [result] = await this.socket.onWhatsApp(jid);
@@ -181,7 +236,12 @@ export class Session {
         }
     }
 
-    public async destroy(logout = true) {
+    /**
+     * Destroys the session.
+     * @param logout - Whether to perform a logout before destroying the session. Default is true.
+     * @returns A promise that resolves when the session is destroyed.
+     */
+    public async destroy(logout: boolean = true): Promise<void> {
         const { sessionId } = this.options;
         const ws = this.socket.ws;
         try {
@@ -195,7 +255,7 @@ export class Session {
 
             useLogger().info(`Session ${sessionId} destroyed`);
         } catch (e) {
-            useLogger().error(e, 'An error occured during session destroy');
+            useLogger().error(e, 'An error occurred during session destroy');
         } finally {
             sessions.delete(sessionId);
             retries.delete(sessionId);
@@ -203,81 +263,75 @@ export class Session {
         }
     }
 
+    /**
+     * Binds event listeners for the session.
+     */
     private async bindEvents() {
-        const { sessionId, readIncomingMessages, webhook } = this.options;
+        // the process function lets you process all events that just occurred
+        // efficiently in a batch
+        this.socket.ev.process(async (events: BaileysEventMap) => {
+            // credentials updated -- save them
+            if (events['creds.update']) {
+                const update = events['creds.update'];
+                await this.sessionState.saveCreds();
 
-        process.on('uncaughtException', async (error) => {
-            useLogger().error(error, 'Uncaught Exception');
-
-            throw error;
-            // this.reconnect();
-        });
-
-        process.on('unhandledRejection', async (error) => {
-            useLogger().error(error, 'Unhandled Rejection');
-        });
-
-        this.socket.ev.on('creds.update', this.sessionState.saveCreds);
-
-        this.socket.ev.on('connection.update', async (update) => {
-            this.connectionState = update;
-
-            const { connection } = update;
-
-            if (connection) useLogger().info('Connection Status: ' + connection);
-
-            if (connection === 'open') {
-                this.lastGeneratedQR = null;
-                retries.delete(sessionId);
-                QRGenerations.delete(sessionId);
-
-                useLogger().info('Session ' + sessionId + ' created');
-            } else if (connection === 'close') await this.handleConnectionClose();
-
-            await this.handleConnectionUpdate();
-        });
-
-        if (readIncomingMessages) {
-            this.socket.ev.on('messages.upsert', async (messageEvent) => {
-                const message = messageEvent.messages[0];
-
-                if (message.key.fromMe || messageEvent.type !== 'notify') return;
-
-                await delay(1000);
-                await this.socket.readMessages([message.key]);
-            });
-        }
-
-        if (webhook?.enabled) {
-            const { url: webhookUrls, events } = webhook;
-
-            const url = webhookUrls ?? process.env.WEBHOOK_URL ?? null;
-
-            if (!url?.length) {
-                useLogger().warn('No webhook url provided');
-                return;
+                sendWebhook(this.options, { event: 'creds.update', payload: update });
+                console.log('creds updated', update);
             }
 
-            this.socket.ev.process(async (socketEvents) => {
-                let eventData = events === 'all' ? socketEvents : pick(socketEvents, events);
+            // something about the connection changed
+            // maybe it closed, or we received all offline message or connection opened
+            if (events['connection.update']) {
+                const update = events['connection.update'];
 
-                if (Object.keys(eventData).length <= 0) return;
+                sendWebhook(this.options, { event: 'connection.update', payload: update });
 
-                const data = {
-                    ...eventData,
-                    session: sessionId,
-                };
+                const { connection } = update;
+                this.connectionState = update;
 
-                try {
-                    await Promise.any((typeof url === 'string' ? [url] : url).map((url) => sendWebhook(url, data)));
-                } catch (e) {
-                    useLogger().error(e, 'An error occured during webhook request');
+                if (connection) useLogger().info('Connection Status: ' + connection);
+
+                if (connection === 'open') {
+                    this.lastGeneratedQR = null;
+                    retries.delete(this.options.sessionId);
+                    QRGenerations.delete(this.options.sessionId);
+
+                    useLogger().info('Session ' + this.options.sessionId + ' created');
+                } else if (connection === 'close') await this.handleConnectionClose();
+
+                await this.handleConnectionUpdate();
+            }
+
+            // If readIncomingMessages is true, read all incoming messages
+            if (this.options.readIncomingMessages) {
+                if (events['messages.upsert']) {
+                    const messageEvent = events['messages.upsert'];
+
+                    const message = messageEvent.messages[0];
+
+                    sendWebhook(this.options, { event: 'messages.upsert', payload: messageEvent });
+
+                    if (message.key.fromMe || messageEvent.type !== 'notify') return;
+
+                    await delay(1000);
+                    await this.socket.readMessages([message.key]);
                 }
-            });
-        }
+            }
+        });
     }
 
-    private async handleConnectionUpdate() {
+    /**
+     * Handles the connection update for the session.
+     * If pairing code is enabled and phone number is provided, it waits for the connection update event,
+     * requests a pairing code, and sends the code to the client for verification.
+     * If pairing code is not enabled or phone number is not provided, it generates a QR code for the client to scan.
+     * If the maximum number of QR code generations is reached, it destroys the session.
+     * If Server-Sent Events (SSE) is enabled, it sends the connection state and generated QR code to the client.
+     * If SSE is not enabled, it sends the connection state and generated QR code as JSON response to the client.
+     *
+     * @returns A promise that resolves when the connection update is handled.
+     */
+    private async handleConnectionUpdate(): Promise<void> {
         const { sessionId, res, SSE, usePairingCode, phoneNumber } = this.options;
 
         if (
@@ -312,7 +366,7 @@ export class Session {
                 this.lastGeneratedQR = generatedQR;
                 QRGenerations.set(sessionId, currentQRGenerations + 1);
             } catch (e) {
-                useLogger().error(e, 'An error occured during QR generation');
+                useLogger().error(e, 'An error occurred during QR generation');
             }
         }
 
@@ -338,7 +392,11 @@ export class Session {
         }
     }
 
-    private async handleConnectionClose() {
+    /**
+     * Handles the connection close event.
+     * @returns A promise that resolves once the handling is complete.
+     */
+    private async handleConnectionClose(): Promise<void> {
         const { sessionId, res, SSE } = this.options;
         const reasonCode = (this.connectionState.lastDisconnect?.error as Boom)?.output?.statusCode;
 
@@ -385,6 +443,11 @@ export class Session {
         this.reconnect();
     }
 
+    /**
+     * Reconnects the session to the server.
+     * If the last disconnect reason is "restartRequired", the session is immediately recreated.
+     * Otherwise, the session is recreated after a delay of RECONNECT_INTERVAL milliseconds.
+     */
     public reconnect() {
         const reasonCode = (this.connectionState.lastDisconnect?.error as Boom)?.output?.statusCode;
         const restartRequired = reasonCode === DisconnectReason.restartRequired;

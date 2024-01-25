@@ -1,15 +1,29 @@
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import type { BaileysEventEmitter } from '@whiskeysockets/baileys';
+import type { BaileysEventEmitter, GroupMetadata } from '@whiskeysockets/baileys';
+import { sendWebhook } from '../services/webhook';
+import type { SessionOptions } from '../session';
 import { useLogger, usePrisma } from '../shared';
-import type { BaileysEventHandler } from '../Types';
 import { transformPrisma } from '../utils';
 
-export default function groupHandler(sessionId: string, event: BaileysEventEmitter) {
-    let listening = false;
+export default function groupHandler(sessionOption: SessionOptions, event: BaileysEventEmitter) {
+    let hasStartedListening = false;
+    const sessionId = sessionOption.sessionId;
 
-    const upsert: BaileysEventHandler<'groups.upsert'> = async (groups) => {
+    /**
+     * Upserts the given groups into the database.
+     *
+     * @param groups - An array of GroupMetadata objects to be upserted.
+     * @returns A Promise that resolves when the upsert operation is complete.
+     */
+    async function upsert(groups: GroupMetadata[]): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'groups.upsert',
+            payload: { groups },
+        });
+
         try {
             if (groups.length === 0) {
                 logger.info('No groups to sync');
@@ -34,11 +48,23 @@ export default function groupHandler(sessionId: string, event: BaileysEventEmitt
         } catch (e) {
             logger.error(e, 'An error occurred during groups upsert');
         }
-    };
+    }
 
-    const update: BaileysEventHandler<'groups.update'> = async (updates) => {
+    /**
+     * Updates the group metadata in the database.
+     *
+     * @param updates - An array of partial group metadata objects containing the updates.
+     * @returns A Promise that resolves to void.
+     */
+    async function update(updates: Partial<GroupMetadata>[]): Promise<void> {
         const prisma = usePrisma();
         const logger = useLogger();
+
+        sendWebhook(sessionOption, {
+            event: 'groups.update',
+            payload: { groups: updates },
+        });
+
         for (const update of updates) {
             try {
                 await prisma.group.update({
@@ -53,22 +79,22 @@ export default function groupHandler(sessionId: string, event: BaileysEventEmitt
                 logger.error(e, 'An error occurred during group update');
             }
         }
-    };
+    }
 
     const listen = () => {
-        if (listening) return;
+        if (hasStartedListening) return;
 
         event.on('groups.upsert', upsert);
         event.on('groups.update', update);
-        listening = true;
+        hasStartedListening = true;
     };
 
     const unlisten = () => {
-        if (!listening) return;
+        if (!hasStartedListening) return;
 
         event.off('groups.upsert', upsert);
         event.off('groups.update', update);
-        listening = false;
+        hasStartedListening = false;
     };
 
     return { listen, unlisten };

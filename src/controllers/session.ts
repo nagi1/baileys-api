@@ -19,7 +19,7 @@ export const status: RequestHandler = (req, res) => {
 
 export const qr: RequestHandler = (req, res) => {
     const session = Session.get(req.params.sessionId)!;
-    res.status(200).json({ qr: session.QR() });
+    res.status(200).json({ qr: session.getLatestGeneratedQR() });
 };
 
 export const add: RequestHandler = async (req, res) => {
@@ -61,7 +61,7 @@ export const update: RequestHandler = async (req, res) => {
         session.socket.end(new Boom('Restarting session', { statusCode: DisconnectReason.restartRequired }));
         res.status(200).json({ message: 'Session updated' });
     } catch (e) {
-        const message = 'An error occured during session update';
+        const message = 'An error occurred during session update';
         logger.error(e, message);
         res.status(500).json({ error: message });
     }
