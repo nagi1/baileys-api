@@ -128,7 +128,8 @@ export class Session {
     public static async create(options: SessionOptions) {
         const configID = `${SESSION_CONFIG_ID}-${options.sessionId}`;
 
-        const data = JSON.stringify(options);
+        // stringify options to save into databases as JSON but don't save the res objec
+        const data = JSON.stringify({ ...options, res: undefined });
 
         const [sessionState, _]: [Awaited<ReturnType<typeof useSession>>, any] = await Promise.all([
             // Get or create session state either from the database or from scratch (if it doesn't exist)
